@@ -933,7 +933,21 @@ def save_entry_with_lines(
         "total_credit": total_credit,
     }
 
-    if not fs_create_document(user_collection("entries", user_uid), header, doc_id=entry_id):
+    # Header preparation
+    header_col = user_collection("entries", user_uid)
+    header_doc_path = f"{header_col}/{entry_id}"
+    
+    # Check if exists (for edit)
+    is_edit = entry_header.get("entry_id") is not None
+    
+    if is_edit:
+        # Delete old lines to avoid leftovers if the number of lines decreased
+        lines_df = load_entry_lines(user_uid)
+        old_lines = lines_df[lines_df["entry_id"] == entry_id]
+        for _, ol in old_lines.iterrows():
+            fs_delete_document(user_collection("entry_lines", user_uid), ol["_id"])
+
+    if not fs_set_document(header_doc_path, header):
         return False, "Impossible d'enregistrer l'entête de l'écriture."
 
     success = True
@@ -952,7 +966,8 @@ def save_entry_with_lines(
             "line_no": idx,
         }
         line_id = f"{entry_id}_{idx:02d}"
-        success = fs_create_document(user_collection("entry_lines", user_uid), payload, doc_id=line_id) and success
+        line_path = f"{user_collection('entry_lines', user_uid)}/{line_id}"
+        success = fs_set_document(line_path, payload) and success
 
     if asset_payload:
         asset_id = asset_payload.get("asset_id") or str(uuid.uuid4()).replace("-", "")
@@ -1436,6 +1451,39 @@ def page_entry_input(user_uid: str, accounts_df: pd.DataFrame, cfg: Dict[str, An
         st.warning(f"⚠️ Connexion Firebase : {bs}")
 
     st.title("✍️ Saisie des Écritures")
+    
+    # ── LOGIQUE DE MODIFICATION ──
+    edit_id = st.session_state.get("entry_to_edit")
+    if edit_id:
+        entries_df = load_entries(user_uid)
+        ed = entries_df[entries_df["entry_id"] == edit_id]
+        if not ed.empty:
+            e = ed.iloc[0]
+            st.warning(f"🔧 **Mode Modification** : Écriture {e['piece_no']} du {e['date'].strftime('%d/%m/%Y')}")
+            if st.button("❌ Annuler la modification"):
+                st.session_state["entry_to_edit"] = None
+                # On vide le state pour éviter que les données fantômes restent au prochain clic 'Saisie'
+                for k in list(st.session_state.keys()):
+                    if k.startswith(("m_", "acc_", "deb_", "cred_", "memo_")):
+                        del st.session_state[k]
+                st.rerun()
+            
+            # Pré-remplissage seulement si pas déjà fait pour cet ID
+            if f"acc_1" not in st.session_state or st.session_state.get("_last_edit_id") != edit_id:
+                lines_df = load_entry_lines(user_uid)
+                lines_e = lines_df[lines_df["entry_id"] == edit_id].sort_values("line_no")
+                st.session_state["m_date"] = e["date"].date()
+                st.session_state["m_piece"] = e["piece_no"]
+                st.session_state["m_journal"] = e["journal"]
+                st.session_state["m_label"] = e["libelle"]
+                st.session_state["m_nb_lines"] = len(lines_e)
+                for i, (_, ln) in enumerate(lines_e.iterrows(), 1):
+                    st.session_state[f"acc_{i}"] = f"{ln['account_code']} - {ln['account_label']}"
+                    st.session_state[f"deb_{i}"] = float(ln["debit"])
+                    st.session_state[f"cred_{i}"] = float(ln["credit"])
+                    st.session_state[f"memo_{i}"] = ln["memo"]
+                st.session_state["_last_edit_id"] = edit_id
+
     tab_guided, tab_manual = st.tabs(["✨ Assistant guidé", "🔧 Écriture manuelle"])
 
     revenue_options = account_display_options(accounts_df, prefixes=("7",))
@@ -1650,11 +1698,12 @@ def page_entry_input(user_uid: str, accounts_df: pd.DataFrame, cfg: Dict[str, An
                         st.error("❌ Erreur interne : aucune ligne générée pour ce template.")
                     else:
                         header = {
+                            "entry_id": edit_id if edit_id else None,
                             "date": entry_date.isoformat(),
                             "piece_no": piece_no.strip(),
                             "libelle": label.strip(),
                             "journal": journal_code,
-                            "type": entry_type,
+                            "type": entry_type if not edit_id else "manual_edit",
                         }
                         ok, msg = save_entry_with_lines(user_uid, header, lines_to_save, asset_payload)
                         st.session_state["_save_ok"] = ok
@@ -1745,11 +1794,12 @@ def page_entry_input(user_uid: str, accounts_df: pd.DataFrame, cfg: Dict[str, An
                     st.error("⚠️ Le libellé est obligatoire.")
                 else:
                     header_m = {
+                        "entry_id": edit_id if edit_id else None,
                         "date": entry_date_m.isoformat(),
                         "piece_no": piece_no_m.strip(),
                         "libelle": label_m.strip(),
                         "journal": journal_code_m,
-                        "type": "manual",
+                        "type": "manual" if not edit_id else "manual_edit",
                     }
                     ok_m, msg_m = save_entry_with_lines(user_uid, header_m, manual_lines, None)
                     st.session_state["_save_ok"] = ok_m
@@ -1924,9 +1974,15 @@ def page_general_journal(
             with act2:
                 st.caption(f"Créé le : {row.get('created_at', '—')[:10] if row.get('created_at') else '—'}")
             with act3:
-                if st.button("🗑️ Supprimer", key=f"del_{entry_id}", use_container_width=True):
-                    st.session_state["confirm_delete_id"] = entry_id
-                    st.rerun()
+                c1, c2 = st.columns(2)
+                with c1:
+                    if st.button("✏️", key=f"edit_btn_{entry_id}", help="Modifier cette écriture"):
+                        st.session_state["entry_to_edit"] = entry_id
+                        st.rerun()
+                with c2:
+                    if st.button("🗑️", key=f"del_{entry_id}", use_container_width=True, help="Supprimer"):
+                        st.session_state["confirm_delete_id"] = entry_id
+                        st.rerun()
 
 
 def page_cash_bank(title: str, account_code: str, entries_df: pd.DataFrame, lines_df: pd.DataFrame, cfg: Dict[str, Any], year: int, month: str) -> None:
@@ -2069,7 +2125,7 @@ def page_closing_table(
     for col in num_cols:
         display_df[col] = display_df[col].apply(lambda x: fmt_amount(x, devise))
 
-    st.dataframe(display_df, use_container_width=True, hide_index=True)
+    st.dataframe(display_df.set_index("Mois").T, use_container_width=True)
 
     # --- Graphs ---
     col1, col2 = st.columns(2)
