@@ -263,14 +263,33 @@ def inject_css() -> None:
             background-color: #0f172a !important;
             border-right: 1px solid #1e293b;
         }
-        /* Textes génériques et labels dans la sidebar */
-        [data-testid="stSidebar"] p, 
+        /* Tous les textes : paragraphes, listes, titres, icônes */
+        [data-testid="stSidebar"] p, [data-testid="stSidebar"] li, [data-testid="stSidebar"] span,
         [data-testid="stSidebar"] h1, [data-testid="stSidebar"] h2, [data-testid="stSidebar"] h3,
-        [data-testid="stSidebar"] div[data-testid="stMarkdownContainer"] > p,
         [data-testid="stSidebar"] label {
             color: #f8fafc !important;
         }
-        /* Style spécifique pour le bouton Se Déconnecter ou autres boutons dans la sidebar */
+        [data-testid="stSidebar"] li::marker {
+            color: #f8fafc !important;
+        }
+
+        /* Correction Expanders (Aide & Glossaire) */
+        [data-testid="stSidebar"] details {
+            background-color: #1e293b !important;
+            border: 1px solid #334155 !important;
+            border-radius: 8px;
+            margin-bottom: 0.8rem;
+            padding: 2px 5px;
+        }
+        [data-testid="stSidebar"] summary {
+            color: #ffffff !important;
+            font-weight: 600 !important;
+        }
+        [data-testid="stSidebar"] summary:hover {
+            color: #3b82f6 !important;
+        }
+
+        /* Boutons sidebar */
         [data-testid="stSidebar"] button {
             background-color: #1e293b !important;
             color: #f8fafc !important;
@@ -283,8 +302,8 @@ def inject_css() -> None:
             background-color: #334155 !important;
             color: #ffffff !important;
         }
-        /* Garder le texte du selectbox lisible (s'il s'affiche en blanc sur fond blanc) */
-        [data-testid="stSidebar"] div[data-baseweb="select"] * {
+        /* Garder le texte des menus déroulants (Selectbox) lisible */
+        [data-testid="stSidebar"] [data-baseweb="select"] * {
             color: #0f172a !important;
         }
         
