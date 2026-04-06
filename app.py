@@ -162,18 +162,25 @@ NATURE_MAP = {
             "🏦 Banque": "Paiement salaire (Banque)",
         },
     },
-    "📦 2.3 Matières premières": {
-        "payment_options": ["💵 Caisse", "🏦 Banque"],
-        "templates": {
-            "💵 Caisse": "Achat matières premières (Caisse)",
-            "🏦 Banque": "Achat matières premières (Banque)",
-        },
-    },
     "📂 2.2 Fournitures & Services": {
         "payment_options": ["💵 Caisse", "🏦 Banque"],
         "templates": {
             "💵 Caisse": "Fournitures et services (Caisse)",
             "🏦 Banque": "Fournitures et services (Banque)",
+        },
+    },
+    "🏠 Paiement Loyer": {
+        "payment_options": ["💵 Caisse", "🏦 Banque"],
+        "templates": {
+            "💵 Caisse": "Paiement loyer (Caisse)",
+            "🏦 Banque": "Paiement loyer (Banque)",
+        },
+    },
+    "📦 2.3 Matières premières": {
+        "payment_options": ["💵 Caisse", "🏦 Banque"],
+        "templates": {
+            "💵 Caisse": "Achat matières premières (Caisse)",
+            "🏦 Banque": "Achat matières premières (Banque)",
         },
     },
     "💸 2.4 Autres charges": {
@@ -1576,6 +1583,8 @@ def page_entry_input(user_uid: str, accounts_df: pd.DataFrame, cfg: Dict[str, An
             "Vente encaissée en banque":              ("521 Banque", "70x Ventes", "🟢 Entrée argent", "#22c55e"),
             "Paiement salaire (Caisse)":              ("641 Salaires", "57 Caisse", "🔴 Sortie argent", "#ef4444"),
             "Paiement salaire (Banque)":              ("641 Salaires", "521 Banque", "🔴 Sortie argent", "#ef4444"),
+            "Paiement loyer (Caisse)":                ("614 Loyer", "57 Caisse", "🔴 Sortie argent", "#ef4444"),
+            "Paiement loyer (Banque)":                ("614 Loyer", "521 Banque", "🔴 Sortie argent", "#ef4444"),
             "Achat matières premières (Caisse)":      ("601 Matières", "57 Caisse", "🔴 Sortie argent", "#ef4444"),
             "Achat matières premières (Banque)":      ("601 Matières", "521 Banque", "🔴 Sortie argent", "#ef4444"),
             "Fournitures et services (Caisse)":       ("602 Services", "57 Caisse", "🔴 Sortie argent", "#ef4444"),
@@ -1630,11 +1639,14 @@ def page_entry_input(user_uid: str, accounts_df: pd.DataFrame, cfg: Dict[str, An
             elif "salaire" in template.lower():
                 expense_opt = st.selectbox("👥 Compte de charges (Salaires 641…)", [opt for opt in expense_options if "64" in opt.split(" - ")[0]] or expense_options)
             
+            elif "loyer" in template.lower():
+                expense_opt = st.selectbox("🏠 Compte Loyer (614…)", [opt for opt in expense_options if "614" in opt.split(" - ")[0]] or expense_options)
+
             elif "matières premières" in template.lower():
                 expense_opt = st.selectbox("📦 Achat Matières premières (601…)", [opt for opt in expense_options if "601" in opt.split(" - ")[0]] or expense_options)
 
             elif "fournitures et services" in template.lower():
-                expense_opt = st.selectbox("📂 Fournitures et Services (602…)", [opt for opt in expense_options if "602" in opt.split(" - ")[0]] or expense_options)
+                expense_opt = st.selectbox("📂 Fournitures et Services (602, 61, 62…)", [opt for opt in expense_options if any(opt.split(" - ")[0].startswith(p) for p in ("602", "61", "62"))] or expense_options)
 
             elif "charges" in template.lower() or "dépense" in template.lower():
                 expense_opt = st.selectbox("📂 Compte de charge (6xx)", expense_options, index=0)
@@ -1670,7 +1682,7 @@ def page_entry_input(user_uid: str, accounts_df: pd.DataFrame, cfg: Dict[str, An
                             {"account_code": main_asset_code, "account_label": main_asset_label, "debit": amount, "credit": 0.0, "memo": memo},
                             {"account_code": rc, "account_label": rl, "debit": 0.0, "credit": amount, "memo": memo},
                         ]
-                    elif any(k in template.lower() for k in ["salaire", "matières premières", "fournitures et services", "charges", "dépense"]):
+                    elif any(k in template.lower() for k in ["salaire", "matières premières", "fournitures et services", "charges", "loyer", "dépense"]):
                         ec, el = parse_account_option(expense_opt)
                         lines_to_save = [
                             {"account_code": ec, "account_label": el, "debit": amount, "credit": 0.0, "memo": memo},
@@ -2126,9 +2138,9 @@ def monthly_closing_table(
             ca = max(0.0, lm[lm["_sg"] == "revenue"]["credit"].sum() - lm[lm["_sg"] == "revenue"]["debit"].sum())
             
             # Detailed costs
-            salaires = max(0.0, lm[lm["account_code"] == "641"]["debit"].sum() - lm[lm["account_code"] == "641"]["credit"].sum())
+            salaires = max(0.0, lm[lm["account_code"].str.startswith("64")]["debit"].sum() - lm[lm["account_code"].str.startswith("64")]["credit"].sum())
             matieres = max(0.0, lm[lm["account_code"].str.startswith("601")]["debit"].sum() - lm[lm["account_code"].str.startswith("601")]["credit"].sum())
-            services = max(0.0, lm[lm["account_code"].str.startswith("602")]["debit"].sum() - lm[lm["account_code"].str.startswith("602")]["credit"].sum())
+            services = max(0.0, lm[lm["account_code"].str.startswith(("602", "61", "62"))]["debit"].sum() - lm[lm["account_code"].str.startswith(("602", "61", "62"))]["credit"].sum())
             
             total_charges = max(0.0, lm[lm["_sg"] == "expense"]["debit"].sum() - lm[lm["_sg"] == "expense"]["credit"].sum())
             others = max(0.0, total_charges - salaires - matieres - services)
