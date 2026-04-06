@@ -1514,6 +1514,7 @@ def page_entry_input(user_uid: str, accounts_df: pd.DataFrame, cfg: Dict[str, An
     # ── Feedback persistant après rerun ──
     if st.session_state.pop("_save_ok", False):
         st.success(f"✅ {st.session_state.pop('_save_msg', 'Écriture enregistrée.')}", icon="✅")
+        st.balloons()
     if st.session_state.pop("_save_err", False):
         st.error(f"❌ {st.session_state.pop('_save_msg', 'Erreur lors de l\'enregistrement.')}")
 
