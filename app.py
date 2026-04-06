@@ -2168,7 +2168,7 @@ def page_closing_table(
     transposed["TOTAL ANNUEL"] = [totals_row[c] for c in transposed.index]
     
     # Format for display
-    styled_df = transposed.applymap(lambda x: fmt_amount(x, devise))
+    styled_df = transposed.map(lambda x: fmt_amount(x, devise))
 
     st.dataframe(styled_df, use_container_width=True)
 
