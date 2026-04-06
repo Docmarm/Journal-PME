@@ -119,8 +119,14 @@ ASSET_CATALOG = {
 GUIDED_TEMPLATES = [
     "Vente encaissée en caisse",
     "Vente encaissée en banque",
-    "Dépense payée par caisse",
-    "Dépense payée par banque",
+    "Paiement salaire (Caisse)",
+    "Paiement salaire (Banque)",
+    "Achat matières premières (Caisse)",
+    "Achat matières premières (Banque)",
+    "Fournitures et services (Caisse)",
+    "Fournitures et services (Banque)",
+    "Autres charges (Caisse)",
+    "Autres charges (Banque)",
     "Virement caisse vers banque",
     "Virement banque vers caisse",
     "Encaissement client en caisse",
@@ -132,18 +138,39 @@ GUIDED_TEMPLATES = [
 ]
 
 NATURE_MAP = {
-    "💰 Vente / Prestation": {
+    "💰 1. Ventes": {
         "payment_options": ["💵 Caisse", "🏦 Banque"],
         "templates": {
             "💵 Caisse": "Vente encaissée en caisse",
             "🏦 Banque": "Vente encaissée en banque",
         },
     },
-    "💸 Dépense / Charge": {
+    "👥 2.1 Salaires": {
         "payment_options": ["💵 Caisse", "🏦 Banque"],
         "templates": {
-            "💵 Caisse": "Dépense payée par caisse",
-            "🏦 Banque": "Dépense payée par banque",
+            "💵 Caisse": "Paiement salaire (Caisse)",
+            "🏦 Banque": "Paiement salaire (Banque)",
+        },
+    },
+    "📦 2.3 Matières premières": {
+        "payment_options": ["💵 Caisse", "🏦 Banque"],
+        "templates": {
+            "💵 Caisse": "Achat matières premières (Caisse)",
+            "🏦 Banque": "Achat matières premières (Banque)",
+        },
+    },
+    "📂 2.2 Fournitures & Services": {
+        "payment_options": ["💵 Caisse", "🏦 Banque"],
+        "templates": {
+            "💵 Caisse": "Fournitures et services (Caisse)",
+            "🏦 Banque": "Fournitures et services (Banque)",
+        },
+    },
+    "💸 2.4 Autres charges": {
+        "payment_options": ["💵 Caisse", "🏦 Banque"],
+        "templates": {
+            "💵 Caisse": "Autres charges (Caisse)",
+            "🏦 Banque": "Autres charges (Banque)",
         },
     },
     "🔄 Virement interne": {
@@ -158,13 +185,6 @@ NATURE_MAP = {
         "templates": {
             "💵 Caisse": "Encaissement client en caisse",
             "🏦 Banque": "Encaissement client en banque",
-        },
-    },
-    "🏢 Paiement fournisseur": {
-        "payment_options": ["💵 Caisse", "🏦 Banque"],
-        "templates": {
-            "💵 Caisse": "Paiement fournisseur par caisse",
-            "🏦 Banque": "Paiement fournisseur par banque",
         },
     },
     "🏗️ Achat d'immobilisation": {
@@ -1500,32 +1520,28 @@ def page_entry_input(user_uid: str, accounts_df: pd.DataFrame, cfg: Dict[str, An
         st.markdown("### Étape 1 — Nature & moyen de paiement")
         col_nat, col_pay = st.columns(2)
         with col_nat:
-            nature = st.selectbox(
-                "🎯 Nature de l'opération",
-                list(NATURE_MAP.keys()),
-                key="guided_nature_sel",
-            )
+            nature = st.selectbox("🎯 Nature de l'opération", list(NATURE_MAP.keys()), key="guided_nature_sel")
         payment_options = NATURE_MAP[nature]["payment_options"]
         with col_pay:
-            moyen = st.selectbox(
-                "💳 Moyen de paiement",
-                payment_options,
-                key="guided_moyen_sel",
-            )
+            moyen = st.selectbox("💳 Moyen de paiement", payment_options, key="guided_moyen_sel")
         template = NATURE_MAP[nature]["templates"][moyen]
 
         # ── Aperçu dynamique de l'écriture ──
         PREVIEW_MAP = {
-            "Vente encaissée en caisse":              ("57 Caisse", "701 Ventes", "🟢 Entrée argent", "#22c55e"),
-            "Vente encaissée en banque":              ("521 Banque", "701 Ventes", "🟢 Entrée argent", "#22c55e"),
-            "Dépense payée par caisse":               ("6xx Charge", "57 Caisse", "🔴 Sortie argent", "#ef4444"),
-            "Dépense payée par banque":               ("6xx Charge", "521 Banque", "🔴 Sortie argent", "#ef4444"),
+            "Vente encaissée en caisse":              ("57 Caisse", "70x Ventes", "🟢 Entrée argent", "#22c55e"),
+            "Vente encaissée en banque":              ("521 Banque", "70x Ventes", "🟢 Entrée argent", "#22c55e"),
+            "Paiement salaire (Caisse)":              ("641 Salaires", "57 Caisse", "🔴 Sortie argent", "#ef4444"),
+            "Paiement salaire (Banque)":              ("641 Salaires", "521 Banque", "🔴 Sortie argent", "#ef4444"),
+            "Achat matières premières (Caisse)":      ("601 Matières", "57 Caisse", "🔴 Sortie argent", "#ef4444"),
+            "Achat matières premières (Banque)":      ("601 Matières", "521 Banque", "🔴 Sortie argent", "#ef4444"),
+            "Fournitures et services (Caisse)":       ("602 Services", "57 Caisse", "🔴 Sortie argent", "#ef4444"),
+            "Fournitures et services (Banque)":       ("602 Services", "521 Banque", "🔴 Sortie argent", "#ef4444"),
+            "Autres charges (Caisse)":                ("6xx Charge", "57 Caisse", "🔴 Sortie argent", "#ef4444"),
+            "Autres charges (Banque)":                ("6xx Charge", "521 Banque", "🔴 Sortie argent", "#ef4444"),
             "Virement caisse vers banque":            ("521 Banque", "57 Caisse", "🔵 Virement", "#3b82f6"),
             "Virement banque vers caisse":            ("57 Caisse", "521 Banque", "🔵 Virement", "#3b82f6"),
             "Encaissement client en caisse":          ("57 Caisse", "411 Clients", "🟢 Encaissement", "#22c55e"),
             "Encaissement client en banque":          ("521 Banque", "411 Clients", "🟢 Encaissement", "#22c55e"),
-            "Paiement fournisseur par caisse":        ("401 Fournisseurs", "57 Caisse", "🔴 Paiement", "#ef4444"),
-            "Paiement fournisseur par banque":        ("401 Fournisseurs", "521 Banque", "🔴 Paiement", "#ef4444"),
             "Achat d'immobilisation payé en caisse":  ("2xx Immobilisation", "57 Caisse", "🟡 Investissement", "#f59e0b"),
             "Achat d'immobilisation payé en banque":  ("2xx Immobilisation", "521 Banque", "🟡 Investissement", "#f59e0b"),
         }
@@ -1541,9 +1557,6 @@ def page_entry_input(user_uid: str, accounts_df: pd.DataFrame, cfg: Dict[str, An
                     <span style="background:#fff2;padding:5px 10px;border-radius:6px;font-weight:600;">📤 DÉBIT<br><small style="font-weight:400">{debit_acc}</small></span>
                     <span style="font-size:1.4rem;color:{color};">→</span>
                     <span style="background:#fff2;padding:5px 10px;border-radius:6px;font-weight:600;">📥 CRÉDIT<br><small style="font-weight:400">{credit_acc}</small></span>
-                  </div>
-                  <div style="margin-top:8px;font-size:0.78rem;opacity:0.7;">
-                    Le compte DÉBIT augmente · Le compte CRÉDIT diminue (ou est la source)
                   </div>
                 </div>
                 """,
@@ -1567,17 +1580,24 @@ def page_entry_input(user_uid: str, accounts_df: pd.DataFrame, cfg: Dict[str, An
             asset_family = None
             salvage_value = 0.0
 
-            if template in {"Vente encaissée en caisse", "Vente encaissée en banque"}:
+            if "Vente" in template:
                 revenue_opt = st.selectbox("💼 Compte de produit (701…)", revenue_options, index=0)
 
-            if template in {"Dépense payée par caisse", "Dépense payée par banque"}:
+            elif "salaire" in template.lower():
+                expense_opt = st.selectbox("👥 Compte de charges (Salaires 641…)", [opt for opt in expense_options if "64" in opt.split(" - ")[0]] or expense_options)
+            
+            elif "matières premières" in template.lower():
+                expense_opt = st.selectbox("📦 Achat Matières premières (601…)", [opt for opt in expense_options if "601" in opt.split(" - ")[0]] or expense_options)
+
+            elif "fournitures et services" in template.lower():
+                expense_opt = st.selectbox("📂 Fournitures et Services (602…)", [opt for opt in expense_options if "602" in opt.split(" - ")[0]] or expense_options)
+
+            elif "charges" in template.lower() or "dépense" in template.lower():
                 expense_opt = st.selectbox("📂 Compte de charge (6xx)", expense_options, index=0)
 
-            if template in {"Achat d'immobilisation payé en caisse", "Achat d'immobilisation payé en banque"}:
+            if "immobilisation" in template.lower():
                 asset_family = st.selectbox("🏗️ Famille d'immobilisation", list(ASSET_CATALOG.keys()))
                 salvage_value = st.number_input(f"Valeur résiduelle ({devise})", min_value=0.0, step=1000.0)
-                if asset_family:
-                    st.caption(f"⏱️ Durée amortissement : {ASSET_CATALOG[asset_family]['life_years']} ans (linéaire)")
 
             submitted = st.form_submit_button(
                 "💾 Enregistrer l'écriture",
@@ -1595,94 +1615,42 @@ def page_entry_input(user_uid: str, accounts_df: pd.DataFrame, cfg: Dict[str, An
                     entry_type = "guided"
                     asset_payload: Optional[Dict[str, Any]] = None
 
-                    if template == "Vente encaissée en caisse":
+                    is_cash = any(k in template for k in ["caisse", "Caisse"])
+                    main_asset_code = "57" if is_cash else "521"
+                    main_asset_label = "Caisse" if is_cash else "Banque"
+                    journal_code = "CAI" if is_cash else "BQ"
+
+                    if "Vente" in template:
                         rc, rl = parse_account_option(revenue_opt)
                         lines_to_save = [
-                            {"account_code": "57",  "account_label": "Caisse", "debit": amount, "credit": 0.0, "memo": memo},
-                            {"account_code": rc,    "account_label": rl,       "debit": 0.0,    "credit": amount, "memo": memo},
+                            {"account_code": main_asset_code, "account_label": main_asset_label, "debit": amount, "credit": 0.0, "memo": memo},
+                            {"account_code": rc, "account_label": rl, "debit": 0.0, "credit": amount, "memo": memo},
                         ]
-                        journal_code = "CAI"
-                    elif template == "Vente encaissée en banque":
-                        rc, rl = parse_account_option(revenue_opt)
-                        lines_to_save = [
-                            {"account_code": "521", "account_label": "Banque", "debit": amount, "credit": 0.0, "memo": memo},
-                            {"account_code": rc,    "account_label": rl,       "debit": 0.0,    "credit": amount, "memo": memo},
-                        ]
-                        journal_code = "BQ"
-                    elif template == "Dépense payée par caisse":
+                    elif any(k in template.lower() for k in ["salaire", "matières premières", "fournitures et services", "charges", "dépense"]):
                         ec, el = parse_account_option(expense_opt)
                         lines_to_save = [
-                            {"account_code": ec,   "account_label": el,       "debit": amount, "credit": 0.0, "memo": memo},
-                            {"account_code": "57", "account_label": "Caisse", "debit": 0.0,    "credit": amount, "memo": memo},
+                            {"account_code": ec, "account_label": el, "debit": amount, "credit": 0.0, "memo": memo},
+                            {"account_code": main_asset_code, "account_label": main_asset_label, "debit": 0.0, "credit": amount, "memo": memo},
                         ]
-                        journal_code = "CAI"
-                    elif template == "Dépense payée par banque":
-                        ec, el = parse_account_option(expense_opt)
-                        lines_to_save = [
-                            {"account_code": ec,    "account_label": el,       "debit": amount, "credit": 0.0, "memo": memo},
-                            {"account_code": "521", "account_label": "Banque", "debit": 0.0,    "credit": amount, "memo": memo},
-                        ]
-                        journal_code = "BQ"
-                    elif template == "Virement caisse vers banque":
-                        lines_to_save = [
-                            {"account_code": "521", "account_label": "Banque", "debit": amount, "credit": 0.0, "memo": memo},
-                            {"account_code": "57",  "account_label": "Caisse", "debit": 0.0,    "credit": amount, "memo": memo},
-                        ]
+                    elif "Virement" in template:
+                        from_c = "57" if "caisse vers" in template else "521"
+                        to_c = "521" if "caisse vers" in template else "57"
                         journal_code = "TR"
-                    elif template == "Virement banque vers caisse":
                         lines_to_save = [
-                            {"account_code": "57",  "account_label": "Caisse", "debit": amount, "credit": 0.0, "memo": memo},
-                            {"account_code": "521", "account_label": "Banque", "debit": 0.0,    "credit": amount, "memo": memo},
+                            {"account_code": to_c, "account_label": "Banque" if to_c=="521" else "Caisse", "debit": amount, "credit": 0.0, "memo": memo},
+                            {"account_code": from_c, "account_label": "Caisse" if from_c=="57" else "Banque", "debit": 0.0, "credit": amount, "memo": memo},
                         ]
-                        journal_code = "TR"
-                    elif template == "Encaissement client en caisse":
+                    elif "Encaissement client" in template:
                         lines_to_save = [
-                            {"account_code": "57",  "account_label": "Caisse",  "debit": amount, "credit": 0.0, "memo": memo},
+                            {"account_code": main_asset_code,  "account_label": main_asset_label,  "debit": amount, "credit": 0.0, "memo": memo},
                             {"account_code": "411", "account_label": "Clients", "debit": 0.0,    "credit": amount, "memo": memo},
                         ]
-                        journal_code = "CAI"
-                    elif template == "Encaissement client en banque":
-                        lines_to_save = [
-                            {"account_code": "521", "account_label": "Banque",  "debit": amount, "credit": 0.0, "memo": memo},
-                            {"account_code": "411", "account_label": "Clients", "debit": 0.0,    "credit": amount, "memo": memo},
-                        ]
-                        journal_code = "BQ"
-                    elif template == "Paiement fournisseur par caisse":
-                        lines_to_save = [
-                            {"account_code": "401", "account_label": "Fournisseurs", "debit": amount, "credit": 0.0, "memo": memo},
-                            {"account_code": "57",  "account_label": "Caisse",       "debit": 0.0,    "credit": amount, "memo": memo},
-                        ]
-                        journal_code = "CAI"
-                    elif template == "Paiement fournisseur par banque":
-                        lines_to_save = [
-                            {"account_code": "401", "account_label": "Fournisseurs", "debit": amount, "credit": 0.0, "memo": memo},
-                            {"account_code": "521", "account_label": "Banque",       "debit": 0.0,    "credit": amount, "memo": memo},
-                        ]
-                        journal_code = "BQ"
-                    elif template == "Achat d'immobilisation payé en caisse":
+                    elif "immobilisation" in template.lower():
                         meta = ASSET_CATALOG[asset_family]
                         lines_to_save = [
                             {"account_code": meta["asset_account"], "account_label": meta["asset_label"], "debit": amount, "credit": 0.0, "memo": memo},
-                            {"account_code": "57",  "account_label": "Caisse", "debit": 0.0, "credit": amount, "memo": memo},
+                            {"account_code": main_asset_code, "account_label": main_asset_label, "debit": 0.0, "credit": amount, "memo": memo},
                         ]
-                        journal_code = "CAI"
-                        entry_type = "asset_purchase"
-                        asset_payload = {
-                            "name": label.strip(), "asset_family": asset_family,
-                            "acquisition_date": entry_date.isoformat(), "amount": float(amount),
-                            "salvage_value": float(salvage_value), "useful_life_years": meta["life_years"],
-                            "asset_account": meta["asset_account"], "asset_label": meta["asset_label"],
-                            "depr_account": meta["depr_account"], "depr_label": meta["depr_label"],
-                            "expense_account": meta["expense_account"], "expense_label": meta["expense_label"],
-                            "status": "active",
-                        }
-                    elif template == "Achat d'immobilisation payé en banque":
-                        meta = ASSET_CATALOG[asset_family]
-                        lines_to_save = [
-                            {"account_code": meta["asset_account"], "account_label": meta["asset_label"], "debit": amount, "credit": 0.0, "memo": memo},
-                            {"account_code": "521", "account_label": "Banque", "debit": 0.0, "credit": amount, "memo": memo},
-                        ]
-                        journal_code = "BQ"
                         entry_type = "asset_purchase"
                         asset_payload = {
                             "name": label.strip(), "asset_family": asset_family,
@@ -2050,35 +2018,48 @@ def monthly_closing_table(
 
         if lm.empty:
             ca = 0.0
-            charges = 0.0
-            mvt_caisse = 0.0
-            mvt_banque = 0.0
+            salaires = 0.0
+            matieres = 0.0
+            services = 0.0
+            others = 0.0
         else:
             lm["_sg"] = lm["account_code"].map(lambda x: acc_map.get(x, {}).get("statement_group", ""))
             ca = max(0.0, lm[lm["_sg"] == "revenue"]["credit"].sum() - lm[lm["_sg"] == "revenue"]["debit"].sum())
-            charges = max(0.0, lm[lm["_sg"] == "expense"]["debit"].sum() - lm[lm["_sg"] == "expense"]["credit"].sum())
+            
+            # Detailed costs
+            salaires = max(0.0, lm[lm["account_code"] == "641"]["debit"].sum() - lm[lm["account_code"] == "641"]["credit"].sum())
+            matieres = max(0.0, lm[lm["account_code"].str.startswith("601")]["debit"].sum() - lm[lm["account_code"].str.startswith("601")]["credit"].sum())
+            services = max(0.0, lm[lm["account_code"].str.startswith("602")]["debit"].sum() - lm[lm["account_code"].str.startswith("602")]["credit"].sum())
+            
+            total_charges = max(0.0, lm[lm["_sg"] == "expense"]["debit"].sum() - lm[lm["_sg"] == "expense"]["credit"].sum())
+            others = max(0.0, total_charges - salaires - matieres - services)
+
+        total_costs = salaires + matieres + services + others
+        marge = ca - total_costs
+        
+        # Mouvements de trésorerie (pour les graphiques)
+        if lm.empty:
+            mvt_caisse = 0.0
+            mvt_banque = 0.0
+        else:
             mvt_caisse = lm[lm["account_code"] == "57"]["debit"].sum() - lm[lm["account_code"] == "57"]["credit"].sum()
             mvt_banque = lm[lm["account_code"] == "521"]["debit"].sum() - lm[lm["account_code"] == "521"]["credit"].sum()
-
-        resultat = ca - charges
-        cumul_ca += ca
-        cumul_charges += charges
-        cumul_resultat += resultat
+        
         solde_caisse += mvt_caisse
         solde_banque += mvt_banque
 
         rows.append({
             "Mois": m,
-            "CA (Ventes)": ca,
-            "Charges": charges,
-            "Marge brute": ca - charges,
-            "Résultat": resultat,
+            "1. Ventes": ca,
+            "2.1 Salaires": salaires,
+            "2.2 Fournitures & Services": services,
+            "2.3 Matières premières": matieres,
+            "2.4 Autres charges": others,
+            "TOTAL DES COÛTS": total_costs,
+            "MARGE (TRESORERIE)": marge,
             "Solde Caisse": solde_caisse,
             "Solde Banque": solde_banque,
             "Trésorerie totale": solde_caisse + solde_banque,
-            "Cumul CA": cumul_ca,
-            "Cumul Charges": cumul_charges,
-            "Cumul Résultat": cumul_resultat,
         })
     return pd.DataFrame(rows)
 
@@ -2092,91 +2073,68 @@ def page_closing_table(
 ) -> None:
     devise = cfg.get("devise", "FCFA")
     st.title(f"📅 Tableau de Clôture — {year}")
-    st.caption("Récapitulatif mensuel : ventes, charges, résultat et trésorerie avec cumuls annuels.")
+    st.caption("Soldes mensuels et annuel des ventes et coûts (Format Excel).")
 
     df = monthly_closing_table(entries_df, lines_df, accounts_df, cfg, year)
 
-    total_ca = df["CA (Ventes)"].sum()
-    total_charges = df["Charges"].sum()
-    total_resultat = df["Résultat"].sum()
-    mois_positifs = int((df["Résultat"] > 0).sum())
-    last_tresorerie = df["Trésorerie totale"].iloc[-1] if not df.empty else 0.0
-
-    c1, c2, c3, c4, c5 = st.columns(5)
+    # --- Stats ---
+    total_ca = df["1. Ventes"].sum()
+    total_charges = df["TOTAL DES COÛTS"].sum()
+    total_marge = df["MARGE (TRESORERIE)"].sum()
+    
+    c1, c2, c3, c4 = st.columns(4)
     with c1:
-        render_kpi("CA annuel", fmt_amount(total_ca, devise), f"Exercice {year}")
+        render_kpi("Total Ventes", fmt_amount(total_ca, devise), f"Exercice {year}")
     with c2:
-        render_kpi("Charges annuelles", fmt_amount(total_charges, devise), f"Exercice {year}")
+        render_kpi("Total Coûts", fmt_amount(total_charges, devise), "Total des charges")
     with c3:
-        render_kpi("Résultat annuel", fmt_amount(total_resultat, devise), "Avant IS")
+        render_kpi("Marge Globale", fmt_amount(total_marge, devise), "Ventes - Coûts")
     with c4:
-        render_kpi("Mois bénéficiaires", f"{mois_positifs}/12", "Résultat > 0")
-    with c5:
-        render_kpi("Trésorerie finale", fmt_amount(last_tresorerie, devise), "Caisse + Banque")
+        ratio = (total_marge / total_ca * 100) if total_ca > 0 else 0
+        render_kpi("Taux de Marge", f"{ratio:.1f} %", "Rentabilité")
 
-    st.markdown("")
-    st.markdown('<div class="section-title">Tableau mensuel détaillé</div>', unsafe_allow_html=True)
+    st.markdown('<div class="section-title">Soldes mensuels et annuel des ventes et coûts</div>', unsafe_allow_html=True)
 
-    # Build display dataframe with formatted amounts
-    num_cols = ["CA (Ventes)", "Charges", "Marge brute", "Résultat",
-                "Solde Caisse", "Solde Banque", "Trésorerie totale",
-                "Cumul CA", "Cumul Charges", "Cumul Résultat"]
-    display_df = df[["Mois"] + num_cols].copy()
-    for col in num_cols:
-        display_df[col] = display_df[col].apply(lambda x: fmt_amount(x, devise))
+    # Preparation of display DF with Total column
+    # Only columns from the Excel model
+    table_cols = ["1. Ventes", "2.1 Salaires", "2.2 Fournitures & Services", "2.3 Matières premières", "2.4 Autres charges", "TOTAL DES COÛTS", "MARGE (TRESORERIE)"]
+    display_df = df[["Mois"] + table_cols].copy()
+    
+    # Calculate Total row data locally before formatting
+    totals_row = {"Mois": "TOTAL ANNUEL"}
+    for col in table_cols:
+        totals_row[col] = df[col].sum()
+    
+    # Transpose first to have Mois as columns
+    transposed = display_df.set_index("Mois").T
+    
+    # Add the Total column to the transposed DF
+    transposed["TOTAL ANNUEL"] = [totals_row[c] for c in transposed.index]
+    
+    # Format for display
+    styled_df = transposed.applymap(lambda x: fmt_amount(x, devise))
 
-    st.dataframe(display_df.set_index("Mois").T, use_container_width=True)
+    st.dataframe(styled_df, use_container_width=True)
 
-    # --- Graphs ---
-    col1, col2 = st.columns(2)
-    with col1:
-        st.markdown('<div class="section-title">Performances mensuelles</div>', unsafe_allow_html=True)
-        fig = go.Figure()
-        fig.add_bar(name="CA (Ventes)", x=df["Mois"].str[:3], y=df["CA (Ventes)"], marker_color="#22c55e")
-        fig.add_bar(name="Charges", x=df["Mois"].str[:3], y=df["Charges"], marker_color="#ef4444")
-        fig.add_scatter(
-            name="Résultat",
-            x=df["Mois"].str[:3], y=df["Résultat"],
-            mode="lines+markers",
-            line=dict(color="#3b82f6", width=3),
-        )
-        fig.update_layout(
-            barmode="group", height=320,
-            margin=dict(l=10, r=10, t=10, b=10),
-            paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
-            legend=dict(orientation="h"),
-        )
-        st.plotly_chart(fig, use_container_width=True)
+    # --- Graph matching Excel style ---
+    st.markdown('<div class="section-title">ÉVOLUTION DU CHIFFRE D\'AFFAIRES MENSUEL ET DES COÛTS</div>', unsafe_allow_html=True)
+    fig = go.Figure()
+    fig.add_bar(name="Total des Ventes", x=df["Mois"], y=df["1. Ventes"], marker_color="#22c55e")
+    fig.add_bar(name="2.1 Salaires", x=df["Mois"], y=df["2.1 Salaires"], marker_color="#ef4444")
+    fig.add_bar(name="2.2 Fournitures & Services", x=df["Mois"], y=df["2.2 Fournitures & Services"], marker_color="#3b82f6")
+    fig.add_bar(name="2.3 Matières premières", x=df["Mois"], y=df["2.3 Matières premières"], marker_color="#f59e0b")
+    fig.add_scatter(name="MARGE (TRESORERIE)", x=df["Mois"], y=df["MARGE (TRESORERIE)"], mode="lines+markers", line=dict(color="#10b981", width=4))
 
-    with col2:
-        st.markdown('<div class="section-title">Cumul CA &amp; Charges</div>', unsafe_allow_html=True)
-        fig2 = go.Figure()
-        fig2.add_scatter(
-            name="Cumul CA",
-            x=df["Mois"].str[:3], y=df["Cumul CA"],
-            mode="lines+markers",
-            line=dict(color="#22c55e", width=3),
-            fill="tozeroy", fillcolor="rgba(34,197,94,0.08)",
-        )
-        fig2.add_scatter(
-            name="Cumul Charges",
-            x=df["Mois"].str[:3], y=df["Cumul Charges"],
-            mode="lines+markers",
-            line=dict(color="#ef4444", width=2, dash="dot"),
-        )
-        fig2.add_scatter(
-            name="Cumul Résultat",
-            x=df["Mois"].str[:3], y=df["Cumul Résultat"],
-            mode="lines+markers",
-            line=dict(color="#3b82f6", width=2),
-        )
-        fig2.update_layout(
-            height=320,
-            margin=dict(l=10, r=10, t=10, b=10),
-            paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
-            legend=dict(orientation="h"),
-        )
-        st.plotly_chart(fig2, use_container_width=True)
+    fig.update_layout(
+        barmode="group",
+        height=450,
+        margin=dict(l=20, r=20, t=20, b=20),
+        paper_bgcolor="rgba(0,0,0,0)",
+        plot_bgcolor="rgba(0,0,0,0)",
+        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
+    )
+    st.plotly_chart(fig, use_container_width=True)
+
 
     st.markdown('<div class="section-title">Évolution de la trésorerie</div>', unsafe_allow_html=True)
     fig3 = go.Figure()
