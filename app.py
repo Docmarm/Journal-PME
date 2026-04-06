@@ -356,12 +356,12 @@ def inject_css() -> None:
     )
 
 
-def render_kpi(label: str, value: str, sub: str = "") -> None:
+def render_kpi(label: str, value: str, sub: str = "", color: str = "var(--text-color)") -> None:
     st.markdown(
         f"""
         <div class="app-card">
             <div class="kpi-label">{label}</div>
-            <div class="kpi-value">{value}</div>
+            <div class="kpi-value" style="color: {color};">{value}</div>
             <div class="kpi-sub">{sub}</div>
         </div>
         """,
@@ -1460,17 +1460,25 @@ def page_dashboard(entries_df: pd.DataFrame, lines_df: pd.DataFrame, accounts_df
     cash_balance = safe_float(cfg.get("solde_initial_caisse", 0), 0) + cash_movement
     bank_balance = safe_float(cfg.get("solde_initial_banque", 0), 0) + bank_movement
 
-    c1, c2, c3, c4, c5 = st.columns(5)
+    margin = (is_data["net_income"] / is_data["revenue"] * 100) if is_data["revenue"] > 0 else 0.0
+    margin_color = "#22c55e" if margin > 20 else ("#f59e0b" if margin > 0 else "#ef4444")
+    
+    cash_color = "#22c55e" if cash_balance > 0 else "#ef4444"
+    bank_color = "#22c55e" if bank_balance > 0 else "#ef4444"
+
+    c1, c2, c3, c4, c5, c6 = st.columns(6)
     with c1:
-        render_kpi("Produits", fmt_amount(is_data["revenue"], devise), "Comptes classe 7")
+        render_kpi("Produits", fmt_amount(is_data["revenue"], devise), "Chiffre d'affaires", color="#22c55e")
     with c2:
-        render_kpi("Charges", fmt_amount(is_data["expense"], devise), "Comptes classe 6")
+        render_kpi("Charges", fmt_amount(is_data["expense"], devise), "Total dépenses", color="#ef4444")
     with c3:
-        render_kpi("Résultat net", fmt_amount(is_data["net_income"], devise), "Après impôt théorique")
+        render_kpi("Résultat net", fmt_amount(is_data["net_income"], devise), "Performance", color="#3b82f6")
     with c4:
-        render_kpi("Solde caisse", fmt_amount(cash_balance, devise), "Compte 57")
+        render_kpi("Marge (%)", f"{margin:.1f}%", "Rentabilité", color=margin_color)
     with c5:
-        render_kpi("Solde banque", fmt_amount(bank_balance, devise), "Compte 521")
+        render_kpi("Caisse", fmt_amount(cash_balance, devise), "Compte 57", color=cash_color)
+    with c6:
+        render_kpi("Banque", fmt_amount(bank_balance, devise), "Compte 521", color=bank_color)
 
     st.markdown("")
     col1, col2 = st.columns(2)
@@ -1498,6 +1506,36 @@ def page_dashboard(entries_df: pd.DataFrame, lines_df: pd.DataFrame, accounts_df
                 fig2 = px.pie(expense_tb, names="Compte", values="Montant", hole=0.45, color_discrete_sequence=px.colors.qualitative.Pastel)
                 fig2.update_layout(height=340, margin=dict(l=10, r=10, t=10, b=10), paper_bgcolor="rgba(0,0,0,0)")
                 st.plotly_chart(fig2, use_container_width=True)
+
+    st.markdown("")
+    col_t1, col_t2 = st.columns(2)
+    with col_t1:
+        st.markdown('<div class="section-title">Flux de Trésorerie Cumulé (Banque + Caisse)</div>', unsafe_allow_html=True)
+        # On calcule le solde cumulé mois par mois
+        perf_data = monthly_performance(entries_df, lines_df, accounts_df, year)
+        initial_total = safe_float(cfg.get("solde_initial_caisse", 0)) + safe_float(cfg.get("solde_initial_banque", 0))
+        
+        # Simuler un cumulatif basé sur résultat (approximation simple) ou mieux: basés sur les mouvements 5x
+        # Pour faire simple ici, on montre le cumul du résultat (Auto-financement)
+        perf_data["Tréso Cumulée"] = initial_total + (perf_data["Produits"] - perf_data["Charges"]).cumsum()
+        
+        fig4 = go.Figure()
+        fig4.add_scatter(x=perf_data["Mois"].str[:3], y=perf_data["Tréso Cumulée"], fill='tozeroy', line=dict(color="#3b82f6", width=4))
+        fig4.update_layout(height=300, margin=dict(l=10, r=10, t=10, b=10), paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)")
+        st.plotly_chart(fig4, use_container_width=True)
+
+    with col_t2:
+        st.markdown('<div class="section-title">Top 5 - Charges les plus lourdes</div>', unsafe_allow_html=True)
+        expense_tb = tb[tb["statement_group"] == "expense"].copy()
+        if not expense_tb.empty:
+            expense_tb["Montant"] = expense_tb.apply(account_value_from_tb, axis=1)
+            top_5 = expense_tb.sort_values("Montant", ascending=False).head(5)
+            if not top_5.empty:
+                st.dataframe(top_5[["code", "label", "Montant"]].rename(columns={"code":"N°", "label":"Intitulé"}), use_container_width=True, hide_index=True)
+            else:
+                st.info("Aucune donnée.")
+        else:
+            st.info("Aucune donnée.")
 
     st.markdown('<div class="section-title">Dernières écritures</div>', unsafe_allow_html=True)
     recent = filter_entries(entries_df, year, month).head(12).copy()
