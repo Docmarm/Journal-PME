@@ -1,3 +1,4 @@
+import io
 import os
 import time
 import uuid
@@ -23,6 +24,15 @@ MOIS = [
     "Janvier", "Février", "Mars", "Avril", "Mai", "Juin",
     "Juillet", "Août", "Septembre", "Octobre", "Novembre", "Décembre"
 ]
+
+STATEMENT_GROUPS_FR = {
+    "asset": "Actif",
+    "contra_asset": "Amortissement (Actif -)",
+    "liability": "Passif",
+    "equity": "Capitaux Propres",
+    "revenue": "Produits (7)",
+    "expense": "Charges (6)",
+}
 
 DEFAULT_CONFIG = {
     "nom": "Mon Entreprise",
@@ -1037,6 +1047,39 @@ def ledger_df(entries_df: pd.DataFrame, lines_df: pd.DataFrame) -> pd.DataFrame:
     return merged
 
 
+def df_to_excel(df: pd.DataFrame, sheet_name: str = "Feuille1") -> bytes:
+    """Conséquence directe : Un fichier Excel bien formaté avec en-têtes gras et colonnes ajustées."""
+    if df.empty:
+        return b""
+    output = io.BytesIO()
+    with pd.ExcelWriter(output, engine='openpyxl') as writer:
+        df.to_excel(writer, index=False, sheet_name=sheet_name)
+        worksheet = writer.sheets[sheet_name]
+        # Format Headers: Bold + Center
+        from openpyxl.styles import Font, Alignment
+        header_font = Font(bold=True, size=11)
+        for col_num, column in enumerate(df.columns, 1):
+            cell = worksheet.cell(row=1, column=col_num)
+            cell.font = header_font
+            cell.alignment = Alignment(horizontal='center')
+        
+        # Auto-adjust column widths
+        for col in worksheet.columns:
+            max_length = 0
+            column_cells = [cell for cell in col]
+            for cell in column_cells:
+                try:
+                    if cell.value:
+                        if len(str(cell.value)) > max_length:
+                            max_length = len(str(cell.value))
+                except:
+                    pass
+            adjusted_width = (max_length + 2)
+            worksheet.column_dimensions[column_cells[0].column_letter].width = min(adjusted_width, 50)
+            
+    return output.getvalue()
+
+
 def filter_entries(entries_df: pd.DataFrame, year: Optional[int], month: Optional[str], search: str = "") -> pd.DataFrame:
     if entries_df.empty:
         return entries_df.copy()
@@ -1841,14 +1884,14 @@ def page_general_journal(
     
     exp_c1, exp_c2 = st.columns(2)
     with exp_c1:
-        csv_data = export_df.to_csv(index=False).encode("utf-8-sig")
-        st.download_button(f"📥 Exporter le journal complet (CSV)", csv_data, file_name=f"journal_complet_{year}_{month}.csv", mime="text/csv")
+        xlsx_data = df_to_excel(export_df, "Journal Complet")
+        st.download_button(f"📥 Exporter le journal complet (Excel)", xlsx_data, file_name=f"journal_complet_{year}_{month}.xlsx", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
     with exp_c2:
         journal_to_exp = st.selectbox("🎯 Export spécifique", ["Tous", "OD", "CAI", "BQ", "TR"], key="j_exp_sel")
         if journal_to_exp != "Tous":
             j_df = export_df[export_df["Journal"] == journal_to_exp]
-            j_csv = j_df.to_csv(index=False).encode("utf-8-sig")
-            st.download_button(f"📥 Exporter {journal_to_exp} uniquement", j_csv, file_name=f"journal_{journal_to_exp}_{year}_{month}.csv", mime="text/csv")
+            j_xlsx = df_to_excel(j_df, f"Journal {journal_to_exp}")
+            st.download_button(f"📥 Exporter {journal_to_exp} uniquement", j_xlsx, file_name=f"journal_{journal_to_exp}_{year}_{month}.xlsx", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
 
     st.markdown("")
     if view_mode == "Tableau":
@@ -1963,8 +2006,8 @@ def page_cash_bank(title: str, account_code: str, entries_df: pd.DataFrame, line
         st.info("Aucun mouvement sur cette période.")
         return
 
-    csv = journal.drop(columns=["_entry_num", "_exit_num", "_solde_num"]).to_csv(index=False).encode("utf-8-sig")
-    st.download_button("📥 Exporter les mouvements", csv, file_name=f"journal_{account_code}_{year}_{month}.csv", mime="text/csv")
+    xlsx = df_to_excel(journal.drop(columns=["_entry_num", "_exit_num", "_solde_num"]), title)
+    st.download_button("📥 Exporter les mouvements (Excel)", xlsx, file_name=f"journal_{account_code}_{year}_{month}.xlsx", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
     st.dataframe(journal[["Date", "N° Pièce", "Libellé", "Entrée", "Sortie", "Solde"]], use_container_width=True, hide_index=True)
 
     fig = go.Figure()
@@ -2043,8 +2086,8 @@ def page_general_ledger(entries_df: pd.DataFrame, lines_df: pd.DataFrame, accoun
             use_container_width=True, hide_index=True
         )
         
-        csv_data = acc_period[["date", "piece_no", "libelle", "journal", "debit", "credit", "Solde"]].to_csv(index=False).encode("utf-8-sig")
-        st.download_button(f"📥 Exporter le Grand Livre ({code_sel})", csv_data, file_name=f"grand_livre_{code_sel}_{year}_{month}.csv", mime="text/csv")
+        xlsx_data = df_to_excel(acc_period[["date", "piece_no", "libelle", "journal", "debit", "credit", "Solde"]], f"GL {code_sel}")
+        st.download_button(f"📥 Exporter le Grand Livre ({code_sel})", xlsx_data, file_name=f"grand_livre_{code_sel}_{year}_{month}.xlsx", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
 
 
 def monthly_closing_table(
@@ -2216,14 +2259,14 @@ def page_closing_table(
     )
     st.plotly_chart(fig3, use_container_width=True)
 
-    csv_normal = df.to_csv(index=False).encode("utf-8-sig")
-    csv_excel = transposed.reset_index().to_csv(index=False).encode("utf-8-sig")
+    xlsx_normal = df_to_excel(df, "Clôture Mensuelle")
+    xlsx_excel = df_to_excel(transposed.reset_index(), "Tableau Modèle Excel")
     
     ec1, ec2 = st.columns(2)
     with ec1:
-        st.download_button("📥 Exporter le tableau (Format Standard)", csv_normal, file_name=f"tableau_cloture_std_{year}.csv", mime="text/csv")
+        st.download_button("📥 Exporter le tableau (Format Standard - Excel)", xlsx_normal, file_name=f"tableau_cloture_std_{year}.xlsx", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
     with ec2:
-        st.download_button("📥 Exporter le tableau (Format Excel Transposé)", csv_excel, file_name=f"tableau_cloture_excel_{year}.csv", mime="text/csv")
+        st.download_button("📥 Exporter le tableau (Format Excel Transposé)", xlsx_excel, file_name=f"tableau_cloture_excel_{year}.xlsx", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
 
 
 def page_assets(user_uid: str, entries_df: pd.DataFrame, assets_df: pd.DataFrame, cfg: Dict[str, Any], year: int) -> None:
@@ -2277,8 +2320,8 @@ def page_assets(user_uid: str, entries_df: pd.DataFrame, assets_df: pd.DataFrame
             for col in ["Valeur brute", "Base amortissable", "Annuité", "Amortissement cumulé", "Valeur nette comptable"]:
                 view[col] = view[col].apply(lambda x: fmt_amount(x, devise))
             st.dataframe(view, use_container_width=True, hide_index=True)
-            csv = full_sched.to_csv(index=False).encode("utf-8-sig")
-            st.download_button("📥 Exporter le tableau d'amortissement", csv, file_name=f"tableau_amortissement_{year}.csv", mime="text/csv")
+            xlsx = df_to_excel(full_sched, "Amortissements")
+            st.download_button("📥 Exporter le tableau d'amortissement en Excel", xlsx, file_name=f"tableau_amortissement_{year}.xlsx", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
 
     with tab3:
         st.markdown("#### Génération automatique des dotations")
@@ -2308,6 +2351,8 @@ def page_trial_balance(entries_df: pd.DataFrame, lines_df: pd.DataFrame, account
         st.info("Aucun compte disponible.")
         return
     view = tb.copy()
+    view["Groupe"] = view["statement_group"].map(lambda x: STATEMENT_GROUPS_FR.get(x, x))
+    
     totals = {
         "Débit": tb["total_debit"].sum(),
         "Crédit": tb["total_credit"].sum(),
@@ -2317,8 +2362,8 @@ def page_trial_balance(entries_df: pd.DataFrame, lines_df: pd.DataFrame, account
     for col_src, col_dst in [("total_debit", "Débit"), ("total_credit", "Crédit"), ("solde_debit", "Solde Débit"), ("solde_credit", "Solde Crédit")]:
         view[col_dst] = view[col_src].apply(lambda x: fmt_amount(x, devise) if x else "—")
     st.dataframe(
-        view[["code", "label", "Débit", "Crédit", "Solde Débit", "Solde Crédit", "statement_group"]].rename(
-            columns={"code": "Compte", "label": "Intitulé", "statement_group": "Groupe"}
+        view[["code", "label", "Débit", "Crédit", "Solde Débit", "Solde Crédit", "Groupe"]].rename(
+            columns={"code": "Compte", "label": "Intitulé"}
         ),
         use_container_width=True,
         hide_index=True,
@@ -2338,8 +2383,8 @@ def page_trial_balance(entries_df: pd.DataFrame, lines_df: pd.DataFrame, account
     else:
         st.markdown("<div class='state-bad'>Balance non équilibrée</div>", unsafe_allow_html=True)
 
-    csv = tb.to_csv(index=False).encode("utf-8-sig")
-    st.download_button("📥 Exporter la balance", csv, file_name=f"balance_generale_{year}_{month}.csv", mime="text/csv")
+    xlsx = df_to_excel(tb, "Balance Générale")
+    st.download_button("📥 Exporter la balance (Excel)", xlsx, file_name=f"balance_generale_{year}_{month}.xlsx", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
 
 
 def page_income_statement(entries_df: pd.DataFrame, lines_df: pd.DataFrame, accounts_df: pd.DataFrame, cfg: Dict[str, Any], year: int, month: str) -> None:
@@ -2398,8 +2443,8 @@ def page_income_statement(entries_df: pd.DataFrame, lines_df: pd.DataFrame, acco
         pd.DataFrame([{"Compte": "", "Intitulé": "", "Montant": ""}]),
         pd.DataFrame([{"Compte": "RÉSULTAT", "Intitulé": "Net Income", "Montant": data["net_income"]}]),
     ])
-    res_csv = res_csv_df.to_csv(index=False).encode("utf-8-sig")
-    st.download_button("📥 Exporter le Compte de Résultat", res_csv, file_name=f"compte_resultat_{year}_{month}.csv", mime="text/csv")
+    res_xlsx = df_to_excel(res_csv_df, "Compte de Resultat")
+    st.download_button("📥 Exporter le Compte de Résultat (Excel)", res_xlsx, file_name=f"compte_resultat_{year}_{month}.xlsx", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
 
     fig = go.Figure(go.Bar(
         x=chart_df["Indicateur"],
@@ -2437,7 +2482,8 @@ def page_balance_sheet(entries_df: pd.DataFrame, lines_df: pd.DataFrame, account
                 lambda r: f"- {fmt_amount(r['Valeur'], devise)}" if r["statement_group"] == "contra_asset" else fmt_amount(r["Valeur"], devise),
                 axis=1,
             )
-            st.dataframe(act_df.rename(columns={"code": "Compte", "label": "Intitulé", "statement_group": "Groupe"}), use_container_width=True, hide_index=True)
+            act_df["Groupe"] = act_df["statement_group"].map(lambda x: STATEMENT_GROUPS_FR.get(x, x))
+            st.dataframe(act_df[["code", "label", "Groupe", "Valeur"]].rename(columns={"code": "Compte", "label": "Intitulé"}), use_container_width=True, hide_index=True)
             st.markdown(f"### Total Actif : {fmt_amount(total_assets, devise)}")
 
     with right:
@@ -2455,7 +2501,8 @@ def page_balance_sheet(entries_df: pd.DataFrame, lines_df: pd.DataFrame, account
             st.info("Aucun passif.")
         else:
             pass_df["Valeur"] = pass_df["Valeur"].apply(lambda x: fmt_amount(x, devise))
-            st.dataframe(pass_df.rename(columns={"code": "Compte", "label": "Intitulé", "statement_group": "Groupe"}), use_container_width=True, hide_index=True)
+            pass_df["Groupe"] = pass_df["statement_group"].map(lambda x: STATEMENT_GROUPS_FR.get(x, x))
+            st.dataframe(pass_df[["code", "label", "Groupe", "Valeur"]].rename(columns={"code": "Compte", "label": "Intitulé"}), use_container_width=True, hide_index=True)
             st.markdown(f"### Total Passif : {fmt_amount(total_passif, devise)}")
 
     # ── Export Bilan ──
@@ -2471,8 +2518,8 @@ def page_balance_sheet(entries_df: pd.DataFrame, lines_df: pd.DataFrame, account
             bilan_rows.append({"Type": "Passif Détail", "Compte": f"{r['code']} {r['label']}", "Valeur": r["Valeur"]})
     bilan_rows.append({"Type": "PASSIF", "Compte": "Résultat de l'exercice", "Valeur": result["net_income"]})
     
-    bilan_csv = pd.DataFrame(bilan_rows).to_csv(index=False).encode("utf-8-sig")
-    st.download_button("📥 Exporter le Bilan (format Excel)", bilan_csv, file_name=f"bilan_{year}_{month}.csv", mime="text/csv")
+    bilan_xlsx = df_to_excel(pd.DataFrame(bilan_rows), "Bilan")
+    st.download_button("📥 Exporter le Bilan (Excel)", bilan_xlsx, file_name=f"bilan_{year}_{month}.xlsx", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
 
     if round(total_assets - total_passif, 2) == 0:
         st.markdown("<div class='state-ok'>Bilan équilibré</div>", unsafe_allow_html=True)
