@@ -182,6 +182,7 @@ def inject_css() -> None:
         }
         /* Textes génériques et labels dans la sidebar */
         [data-testid="stSidebar"] p, 
+        [data-testid="stSidebar"] h1, [data-testid="stSidebar"] h2, [data-testid="stSidebar"] h3,
         [data-testid="stSidebar"] div[data-testid="stMarkdownContainer"] > p,
         [data-testid="stSidebar"] label {
             color: #f8fafc !important;
