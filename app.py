@@ -1364,6 +1364,7 @@ def render_sidebar(cfg: Dict[str, Any], user: Dict[str, Any], entries_df: pd.Dat
                 "🏦 Journal de Banque",
                 "🏗️ Immobilisations",
                 "⚖️ Balance Générale",
+                "📖 Grand Livre",
                 "📈 Compte de Résultat",
                 "📊 Bilan",
                 "📅 Tableau de Clôture",
@@ -1792,13 +1793,16 @@ def page_general_journal(
     st.title("📔 Journal Général")
 
     # ── Barre de recherche + filtre journal ──
-    col_s, col_j, col_exp = st.columns([3, 2, 2])
+    col_s, col_j, col_v = st.columns([3, 2, 2])
     with col_s:
         search = st.text_input("🔎 Rechercher", placeholder="Libellé, pièce, type…")
     with col_j:
         journal_filter = st.selectbox("Filtrer par journal", ["Tous", "OD", "CAI", "BQ", "TR"])
-    with col_exp:
-        st.write("")
+    with col_v:
+        view_mode = st.radio("📑 Affichage", ["Cartes", "Tableau"], horizontal=True)
+
+    show_lines = True # Default for cards
+    if view_mode == "Cartes":
         show_lines = st.toggle("Afficher les lignes comptables", value=True)
 
     filtered_entries = filter_entries(entries_df, year, month, search)
@@ -1826,131 +1830,112 @@ def page_general_journal(
         st.info("Aucune écriture trouvée pour les filtres sélectionnés.")
         return
 
-    csv = filtered_entries.to_csv(index=False).encode("utf-8-sig")
-    st.download_button(
-        "📥 Exporter le journal filtré (CSV)",
-        csv,
-        file_name=f"journal_general_{year}_{month}.csv",
-        mime="text/csv",
-    )
-
     all_lines = ledger_df(entries_df, lines_df)
 
+    # ── Export complet (Excel ready) ──
+    all_filtered_lines = all_lines[all_lines["entry_id"].isin(filtered_entries["entry_id"])].sort_values(["date", "piece_no", "line_no"])
+    export_df = all_filtered_lines.copy()
+    export_df["Date"] = export_df["date"].dt.strftime("%d/%m/%Y")
+    export_df = export_df[["Date", "piece_no", "libelle", "journal", "type", "account_code", "account_label", "debit", "credit", "memo"]]
+    export_df.columns = ["Date", "Pièce", "Libellé", "Journal", "Type", "Compte Code", "Compte Libellé", "Débit", "Crédit", "Commentaire"]
+    
+    exp_c1, exp_c2 = st.columns(2)
+    with exp_c1:
+        csv_data = export_df.to_csv(index=False).encode("utf-8-sig")
+        st.download_button(f"📥 Exporter le journal complet (CSV)", csv_data, file_name=f"journal_complet_{year}_{month}.csv", mime="text/csv")
+    with exp_c2:
+        journal_to_exp = st.selectbox("🎯 Export spécifique", ["Tous", "OD", "CAI", "BQ", "TR"], key="j_exp_sel")
+        if journal_to_exp != "Tous":
+            j_df = export_df[export_df["Journal"] == journal_to_exp]
+            j_csv = j_df.to_csv(index=False).encode("utf-8-sig")
+            st.download_button(f"📥 Exporter {journal_to_exp} uniquement", j_csv, file_name=f"journal_{journal_to_exp}_{year}_{month}.csv", mime="text/csv")
+
     st.markdown("")
-    # ── Confirmation suppression ──
-    if "confirm_delete_id" not in st.session_state:
-        st.session_state["confirm_delete_id"] = None
+    if view_mode == "Tableau":
+        st.dataframe(export_df, use_container_width=True, hide_index=True)
+    else:
+        # ── Liste des écritures sous forme de CARTES ──
+        JOURNAL_COLORS = {"CAI": "#22c55e", "BQ": "#3b82f6", "TR": "#8b5cf6", "OD": "#94a3b8"}
+        TYPE_LABELS    = {"guided": "✨ Assisté", "manual": "🔧 Manuel", "depreciation": "📉 Amort.", "asset_purchase": "🏗️ Immo.", "manual_edit": "🔨 Modifié"}
 
-    confirm_id = st.session_state.get("confirm_delete_id")
-    if confirm_id:
-        row_del = filtered_entries[filtered_entries["entry_id"] == confirm_id]
-        if not row_del.empty:
-            lbl = row_del.iloc[0].get("libelle", "")
-            st.warning(f"⚠️ Confirmer la suppression de **{lbl}** ?")
-            cc1, cc2 = st.columns(2)
-            with cc1:
-                if st.button("🗑️ Oui, supprimer", type="primary", key="confirm_del_yes"):
-                    ok, msg = delete_entry_with_children(user_uid, confirm_id)
-                    st.session_state["confirm_delete_id"] = None
-                    st.session_state["_save_ok"] = ok
-                    st.session_state["_save_err"] = not ok
-                    st.session_state["_save_msg"] = msg
-                    st.rerun()
-            with cc2:
-                if st.button("✖️ Annuler", key="confirm_del_no"):
-                    st.session_state["confirm_delete_id"] = None
-                    st.rerun()
-            st.stop()
+        for _, row in filtered_entries.iterrows():
+            date_str  = row["date"].strftime("%d/%m/%Y") if pd.notna(row["date"]) else "—"
+            piece     = row.get("piece_no", "") or "—"
+            libelle   = row.get("libelle", "")
+            jcode     = row.get("journal", "OD")
+            type_lbl  = TYPE_LABELS.get(row.get("type", ""), row.get("type", ""))
+            t_debit   = fmt_amount(row.get("total_debit", 0), devise)
+            t_credit  = fmt_amount(row.get("total_credit", 0), devise)
+            entry_id  = row["entry_id"]
+            color     = JOURNAL_COLORS.get(jcode, "#94a3b8")
 
-    # ── Feedback persistant ──
-    if st.session_state.pop("_save_ok", False):
-        st.success(f"✅ {st.session_state.pop('_save_msg', '')}", icon="✅")
-    if st.session_state.pop("_save_err", False):
-        st.error(f"❌ {st.session_state.pop('_save_msg', '')}")
+            header_html = (
+                f'<span style="color:{color};font-weight:700;font-size:0.85rem;margin-right:8px;">[{jcode}]</span>'
+                f'<strong>{date_str}</strong> &nbsp;·&nbsp; {piece} &nbsp;·&nbsp; {libelle}'
+                f'&nbsp;<span style="opacity:0.6;font-size:0.82rem;">{type_lbl}</span>'
+                f'&nbsp;&nbsp;<code style="font-size:0.8rem;">D: {t_debit} | C: {t_credit}</code>'
+            )
 
-    # ── Liste des écritures ──
-    JOURNAL_COLORS = {"CAI": "#22c55e", "BQ": "3b82f6", "TR": "#8b5cf6", "OD": "#94a3b8"}
-    TYPE_LABELS    = {"guided": "✨ Assisté", "manual": "🔧 Manuel", "depreciation": "📉 Amort.", "asset_purchase": "🏗️ Immo."}
+            with st.expander(f"[{jcode}] {date_str} · {piece} · {libelle} | {t_debit}", expanded=False):
+                st.markdown(header_html, unsafe_allow_html=True)
 
-    for _, row in filtered_entries.iterrows():
-        date_str  = row["date"].strftime("%d/%m/%Y") if pd.notna(row["date"]) else "—"
-        piece     = row.get("piece_no", "") or "—"
-        libelle   = row.get("libelle", "")
-        jcode     = row.get("journal", "OD")
-        type_lbl  = TYPE_LABELS.get(row.get("type", ""), row.get("type", ""))
-        t_debit   = fmt_amount(row.get("total_debit", 0), devise)
-        t_credit  = fmt_amount(row.get("total_credit", 0), devise)
-        entry_id  = row["entry_id"]
-        color     = JOURNAL_COLORS.get(jcode, "#94a3b8")
-
-        header_html = (
-            f'<span style="color:{color};font-weight:700;font-size:0.85rem;margin-right:8px;">[{jcode}]</span>'
-            f'<strong>{date_str}</strong> &nbsp;·&nbsp; {piece} &nbsp;·&nbsp; {libelle}'
-            f'&nbsp;<span style="opacity:0.6;font-size:0.82rem;">{type_lbl}</span>'
-            f'&nbsp;&nbsp;<code style="font-size:0.8rem;">D: {t_debit} | C: {t_credit}</code>'
-        )
-
-        with st.expander(f"[{jcode}] {date_str} · {piece} · {libelle} | {t_debit}", expanded=False):
-            st.markdown(header_html, unsafe_allow_html=True)
-
-            if show_lines:
-                sub = all_lines[all_lines["entry_id"] == entry_id].copy()
-                if not sub.empty:
-                    sub = sub.sort_values("account_code").reset_index(drop=True)
-                    # Build visual table
-                    rows_html = ""
-                    for _, ln in sub.iterrows():
-                        d_val  = fmt_amount(ln["debit"],  devise) if ln["debit"]  > 0 else "—"
-                        c_val  = fmt_amount(ln["credit"], devise) if ln["credit"] > 0 else "—"
-                        d_col  = "#22c55e" if ln["debit"]  > 0 else "#64748b"
-                        c_col  = "#ef4444" if ln["credit"] > 0 else "#64748b"
-                        memo   = ln.get("memo", "") or ""
-                        rows_html += (
-                            f'<tr style="border-bottom:1px solid #ffffff15">'
-                            f'<td style="padding:5px 8px;font-weight:600;font-size:0.85rem;">{ln["account_code"]}</td>'
-                            f'<td style="padding:5px 8px;font-size:0.85rem;">{ln["account_label"]}</td>'
-                            f'<td style="padding:5px 8px;color:{d_col};font-weight:700;text-align:right;">{d_val}</td>'
-                            f'<td style="padding:5px 8px;color:{c_col};font-weight:700;text-align:right;">{c_val}</td>'
-                            f'<td style="padding:5px 8px;font-size:0.8rem;opacity:0.7;">{memo}</td>'
-                            f'</tr>'
+                if show_lines:
+                    sub = all_lines[all_lines["entry_id"] == entry_id].copy()
+                    if not sub.empty:
+                        sub = sub.sort_values("account_code").reset_index(drop=True)
+                        rows_html = ""
+                        for _, ln in sub.iterrows():
+                            d_val  = fmt_amount(ln["debit"],  devise) if ln["debit"]  > 0 else "—"
+                            c_val  = fmt_amount(ln["credit"], devise) if ln["credit"] > 0 else "—"
+                            d_col  = "#22c55e" if ln["debit"]  > 0 else "#64748b"
+                            c_col  = "#ef4444" if ln["credit"] > 0 else "#64748b"
+                            memo   = ln.get("memo", "") or ""
+                            rows_html += (
+                                f'<tr style="border-bottom:1px solid #ffffff15">'
+                                f'<td style="padding:5px 8px;font-weight:600;font-size:0.85rem;">{ln["account_code"]}</td>'
+                                f'<td style="padding:5px 8px;font-size:0.85rem;">{ln["account_label"]}</td>'
+                                f'<td style="padding:5px 8px;color:{d_col};font-weight:700;text-align:right;">{d_val}</td>'
+                                f'<td style="padding:5px 8px;color:{c_col};font-weight:700;text-align:right;">{c_val}</td>'
+                                f'<td style="padding:5px 8px;font-size:0.8rem;opacity:0.7;">{memo}</td>'
+                                f'</tr>'
+                            )
+                        st.markdown(
+                            f'<table style="width:100%;border-collapse:collapse;font-family:monospace;">'
+                            f'<thead><tr style="border-bottom:2px solid #ffffff30;opacity:0.6;font-size:0.78rem;">'
+                            f'<th style="padding:4px 8px;text-align:left;">Code</th>'
+                            f'<th style="padding:4px 8px;text-align:left;">Compte</th>'
+                            f'<th style="padding:4px 8px;text-align:right;">📤 Débit</th>'
+                            f'<th style="padding:4px 8px;text-align:right;">📥 Crédit</th>'
+                            f'<th style="padding:4px 8px;text-align:left;">Mémo</th>'
+                            f'</tr></thead><tbody>{rows_html}</tbody></table>',
+                            unsafe_allow_html=True,
                         )
-                    st.markdown(
-                        f'<table style="width:100%;border-collapse:collapse;font-family:monospace;">'
-                        f'<thead><tr style="border-bottom:2px solid #ffffff30;opacity:0.6;font-size:0.78rem;">'
-                        f'<th style="padding:4px 8px;text-align:left;">Code</th>'
-                        f'<th style="padding:4px 8px;text-align:left;">Compte</th>'
-                        f'<th style="padding:4px 8px;text-align:right;">📤 Débit</th>'
-                        f'<th style="padding:4px 8px;text-align:right;">📥 Crédit</th>'
-                        f'<th style="padding:4px 8px;text-align:left;">Mémo</th>'
-                        f'</tr></thead><tbody>{rows_html}</tbody></table>',
-                        unsafe_allow_html=True,
-                    )
-                    td = sub["debit"].sum()
-                    tc = sub["credit"].sum()
-                    eq = "✅ Équilibré" if round(td - tc, 2) == 0 else "⚠️ Déséquilibré"
-                    st.markdown(
-                        f'<div style="text-align:right;font-size:0.82rem;margin-top:6px;opacity:0.8;">'
-                        f'Σ Débit : <strong>{fmt_amount(td, devise)}</strong> &nbsp;|&nbsp; '
-                        f'Σ Crédit : <strong>{fmt_amount(tc, devise)}</strong> &nbsp; {eq}</div>',
-                        unsafe_allow_html=True,
-                    )
+                        td_sum = sub["debit"].sum()
+                        tc_sum = sub["credit"].sum()
+                        eq = "✅ Équilibré" if round(td_sum - tc_sum, 2) == 0 else "⚠️ Déséquilibré"
+                        st.markdown(
+                            f'<div style="text-align:right;font-size:0.82rem;margin-top:6px;opacity:0.8;">'
+                            f'Σ Débit : <strong>{fmt_amount(td_sum, devise)}</strong> &nbsp;|&nbsp; '
+                            f'Σ Crédit : <strong>{fmt_amount(tc_sum, devise)}</strong> &nbsp; {eq}</div>',
+                            unsafe_allow_html=True,
+                        )
 
-            st.markdown("")
-            act1, act2, act3 = st.columns([2, 2, 1])
-            with act1:
-                st.caption(f"Type : {type_lbl} &nbsp;·&nbsp; Statut : {row.get('status', '')}")
-            with act2:
-                st.caption(f"Créé le : {row.get('created_at', '—')[:10] if row.get('created_at') else '—'}")
-            with act3:
-                c1, c2 = st.columns(2)
-                with c1:
-                    if st.button("✏️", key=f"edit_btn_{entry_id}", help="Modifier cette écriture"):
-                        st.session_state["entry_to_edit"] = entry_id
-                        st.rerun()
-                with c2:
-                    if st.button("🗑️", key=f"del_{entry_id}", use_container_width=True, help="Supprimer"):
-                        st.session_state["confirm_delete_id"] = entry_id
-                        st.rerun()
+                st.markdown("")
+                act1, act2, act3 = st.columns([2, 2, 1])
+                with act1:
+                    st.caption(f"Type : {type_lbl} &nbsp;·&nbsp; Statut : {row.get('status', '')}")
+                with act2:
+                    st.caption(f"Créé le : {row.get('created_at', '—')[:10] if row.get('created_at') else '—'}")
+                with act3:
+                    c1, c2 = st.columns(2)
+                    with c1:
+                        if st.button("✏️", key=f"edit_btn_{entry_id}", help="Modifier"):
+                            st.session_state["entry_to_edit"] = entry_id
+                            st.rerun()
+                    with c2:
+                        if st.button("🗑️", key=f"del_{entry_id}", use_container_width=True, help="Supprimer"):
+                            st.session_state["confirm_delete_id"] = entry_id
+                            st.rerun()
 
 
 def page_cash_bank(title: str, account_code: str, entries_df: pd.DataFrame, lines_df: pd.DataFrame, cfg: Dict[str, Any], year: int, month: str) -> None:
@@ -1989,6 +1974,52 @@ def page_cash_bank(title: str, account_code: str, entries_df: pd.DataFrame, line
     fig.update_layout(barmode="group", height=340, margin=dict(l=10, r=10, t=10, b=10), paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)", legend=dict(orientation="h"))
     st.plotly_chart(fig, use_container_width=True)
 
+
+
+def page_general_ledger(entries_df: pd.DataFrame, lines_df: pd.DataFrame, accounts_df: pd.DataFrame, cfg: Dict[str, Any], year: int, month: str) -> None:
+    devise = cfg.get("devise", "FCFA")
+    st.title("📖 Grand Livre")
+    
+    options = account_display_options(accounts_df)
+    selected_acc = st.selectbox("Sélectionner un compte", options)
+    code_sel, label_sel = parse_account_option(selected_acc)
+    
+    ledger = filter_ledger(ledger_df(entries_df, lines_df), year, month)
+    if ledger.empty:
+        st.info("Aucun mouvement trouvé.")
+        return
+        
+    acc_ledger = ledger[ledger["account_code"] == code_sel].sort_values("date")
+    
+    # Calcul solde progressif
+    acc_ledger["Solde"] = (acc_ledger["debit"] - acc_ledger["credit"]).cumsum()
+    
+    total_d = acc_ledger["debit"].sum()
+    total_c = acc_ledger["credit"].sum()
+    final_bal = total_d - total_c
+    
+    c1, c2, c3 = st.columns(3)
+    with c1: render_kpi("Total Débits", fmt_amount(total_d, devise))
+    with c2: render_kpi("Total Crédits", fmt_amount(total_c, devise))
+    with c3: render_kpi("Solde Final", fmt_amount(final_bal, devise))
+    
+    if acc_ledger.empty:
+        st.info(f"Aucun mouvement pour le compte {code_sel} sur cette période.")
+    else:
+        view = acc_ledger.copy()
+        view["Date"] = view["date"].dt.strftime("%d/%m/%Y")
+        view["Débit"] = view["debit"].apply(lambda x: fmt_amount(x, devise) if x>0 else "—")
+        view["Crédit"] = view["credit"].apply(lambda x: fmt_amount(x, devise) if x>0 else "—")
+        view["Solde Progressif"] = view["Solde"].apply(lambda x: fmt_amount(x, devise))
+        
+        st.dataframe(
+            view[["Date", "piece_no", "libelle", "Débit", "Crédit", "Solde Progressif"]]
+            .rename(columns={"piece_no": "Pièce", "libelle": "Libellé"}),
+            use_container_width=True, hide_index=True
+        )
+        
+        csv = acc_ledger[["date", "piece_no", "libelle", "debit", "credit", "Solde"]].to_csv(index=False).encode("utf-8-sig")
+        st.download_button(f"📥 Exporter le Grand Livre ({code_sel})", csv, file_name=f"grand_livre_{code_sel}_{year}.csv", mime="text/csv")
 
 
 def monthly_closing_table(
@@ -2160,13 +2191,14 @@ def page_closing_table(
     )
     st.plotly_chart(fig3, use_container_width=True)
 
-    csv = df.to_csv(index=False).encode("utf-8-sig")
-    st.download_button(
-        "📥 Exporter le tableau de clôture",
-        csv,
-        file_name=f"tableau_cloture_{year}.csv",
-        mime="text/csv",
-    )
+    csv_normal = df.to_csv(index=False).encode("utf-8-sig")
+    csv_excel = transposed.reset_index().to_csv(index=False).encode("utf-8-sig")
+    
+    ec1, ec2 = st.columns(2)
+    with ec1:
+        st.download_button("📥 Exporter le tableau (Format Standard)", csv_normal, file_name=f"tableau_cloture_std_{year}.csv", mime="text/csv")
+    with ec2:
+        st.download_button("📥 Exporter le tableau (Format Excel Transposé)", csv_excel, file_name=f"tableau_cloture_excel_{year}.csv", mime="text/csv")
 
 
 def page_assets(user_uid: str, entries_df: pd.DataFrame, assets_df: pd.DataFrame, cfg: Dict[str, Any], year: int) -> None:
@@ -2330,6 +2362,20 @@ def page_income_statement(entries_df: pd.DataFrame, lines_df: pd.DataFrame, acco
         "Indicateur": ["Produits", "Charges", "Résultat avant impôt", "IS théorique", "Résultat net"],
         "Valeur": [data["revenue"], data["expense"], data["profit_before_tax"], data["tax"], data["net_income"]],
     })
+    
+    # ── Export ──
+    res_csv_df = pd.concat([
+        pd.DataFrame([{"Compte": "STATUT", "Intitulé": "PRODUITS", "Montant": data["revenue"]}]),
+        rev_df[rev_df["Montant"] > 0][["code", "label", "Montant"]].rename(columns={"code": "Compte", "label": "Intitulé"}),
+        pd.DataFrame([{"Compte": "", "Intitulé": "", "Montant": ""}]),
+        pd.DataFrame([{"Compte": "STATUT", "Intitulé": "CHARGES", "Montant": data["expense"]}]),
+        exp_df[exp_df["Montant"] > 0][["code", "label", "Montant"]].rename(columns={"code": "Compte", "label": "Intitulé"}),
+        pd.DataFrame([{"Compte": "", "Intitulé": "", "Montant": ""}]),
+        pd.DataFrame([{"Compte": "RÉSULTAT", "Intitulé": "Net Income", "Montant": data["net_income"]}]),
+    ])
+    res_csv = res_csv_df.to_csv(index=False).encode("utf-8-sig")
+    st.download_button("📥 Exporter le Compte de Résultat", res_csv, file_name=f"compte_resultat_{year}_{month}.csv", mime="text/csv")
+
     fig = go.Figure(go.Bar(
         x=chart_df["Indicateur"],
         y=chart_df["Valeur"],
@@ -2386,6 +2432,22 @@ def page_balance_sheet(entries_df: pd.DataFrame, lines_df: pd.DataFrame, account
             pass_df["Valeur"] = pass_df["Valeur"].apply(lambda x: fmt_amount(x, devise))
             st.dataframe(pass_df.rename(columns={"code": "Compte", "label": "Intitulé", "statement_group": "Groupe"}), use_container_width=True, hide_index=True)
             st.markdown(f"### Total Passif : {fmt_amount(total_passif, devise)}")
+
+    # ── Export Bilan ──
+    bilan_rows = []
+    bilan_rows.append({"Type": "ACTIF", "Compte": "Total Actif", "Valeur": total_assets})
+    for _, r in tb[tb["statement_group"].isin(["asset", "contra_asset"])].iterrows():
+        if r["Valeur"] > 0:
+            v = -r["Valeur"] if r["statement_group"] == "contra_asset" else r["Valeur"]
+            bilan_rows.append({"Type": "Actif Détail", "Compte": f"{r['code']} {r['label']}", "Valeur": v})
+    bilan_rows.append({"Type": "PASSIF", "Compte": "Total Passif", "Valeur": total_passif})
+    for _, r in tb[tb["statement_group"].isin(["liability", "equity"])].iterrows():
+         if r["Valeur"] > 0:
+            bilan_rows.append({"Type": "Passif Détail", "Compte": f"{r['code']} {r['label']}", "Valeur": r["Valeur"]})
+    bilan_rows.append({"Type": "PASSIF", "Compte": "Résultat de l'exercice", "Valeur": result["net_income"]})
+    
+    bilan_csv = pd.DataFrame(bilan_rows).to_csv(index=False).encode("utf-8-sig")
+    st.download_button("📥 Exporter le Bilan (format Excel)", bilan_csv, file_name=f"bilan_{year}_{month}.csv", mime="text/csv")
 
     if round(total_assets - total_passif, 2) == 0:
         st.markdown("<div class='state-ok'>Bilan équilibré</div>", unsafe_allow_html=True)
@@ -2534,6 +2596,9 @@ def main() -> None:
 
     elif page == "⚖️ Balance Générale":
         page_trial_balance(entries_df, lines_df, accounts_df, cfg, selected_year, selected_month)
+
+    elif page == "📖 Grand Livre":
+        page_general_ledger(entries_df, lines_df, accounts_df, cfg, selected_year, selected_month)
 
     elif page == "📈 Compte de Résultat":
         page_income_statement(entries_df, lines_df, accounts_df, cfg, selected_year, selected_month)
