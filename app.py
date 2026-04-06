@@ -1984,42 +1984,67 @@ def page_general_ledger(entries_df: pd.DataFrame, lines_df: pd.DataFrame, accoun
     selected_acc = st.selectbox("Sélectionner un compte", options)
     code_sel, label_sel = parse_account_option(selected_acc)
     
-    ledger = filter_ledger(ledger_df(entries_df, lines_df), year, month)
-    if ledger.empty:
+    all_ledger = ledger_df(entries_df, lines_df)
+    if all_ledger.empty:
         st.info("Aucun mouvement trouvé.")
         return
         
-    acc_ledger = ledger[ledger["account_code"] == code_sel].sort_values("date")
+    # Filtrer par compte
+    acc_full = all_ledger[all_ledger["account_code"] == code_sel].sort_values("date")
     
-    # Calcul solde progressif
-    acc_ledger["Solde"] = (acc_ledger["debit"] - acc_ledger["credit"]).cumsum()
-    
-    total_d = acc_ledger["debit"].sum()
-    total_c = acc_ledger["credit"].sum()
-    final_bal = total_d - total_c
-    
-    c1, c2, c3 = st.columns(3)
-    with c1: render_kpi("Total Débits", fmt_amount(total_d, devise))
-    with c2: render_kpi("Total Crédits", fmt_amount(total_c, devise))
-    with c3: render_kpi("Solde Final", fmt_amount(final_bal, devise))
-    
-    if acc_ledger.empty:
-        st.info(f"Aucun mouvement pour le compte {code_sel} sur cette période.")
+    # Identifier la date de début de période
+    if month != "Tous":
+        start_period = pd.to_datetime(f"{year}-{MOIS.index(month)+1}-01")
     else:
-        view = acc_ledger.copy()
+        start_period = pd.to_datetime(f"{year}-01-01")
+    
+    # ── 1. Solde à nouveau (avant période) ──
+    pre_mov = acc_full[acc_full["date"] < start_period]
+    opening_bal = pre_mov["debit"].sum() - pre_mov["credit"].sum()
+    
+    # ── 2. Mouvements de la période ──
+    if month != "Tous":
+        acc_period = acc_full[(acc_full["annee"] == year) & (acc_full["mois"] == month)].copy()
+    else:
+        acc_period = acc_full[acc_full["annee"] == year].copy()
+        
+    # Calcul solde progressif sur la période
+    current_solde = opening_bal
+    soldes_progressifs = []
+    for _, r in acc_period.iterrows():
+        current_solde += (r["debit"] - r["credit"])
+        soldes_progressifs.append(current_solde)
+    acc_period["Solde"] = soldes_progressifs
+
+    total_d = acc_period["debit"].sum()
+    total_c = acc_period["credit"].sum()
+    final_bal = opening_bal + total_d - total_c
+    
+    c1, c2, c3, c4 = st.columns(4)
+    with c1: render_kpi("Solde Ouverture", fmt_amount(opening_bal, devise), "Avant cette période")
+    with c2: render_kpi("Débits Période", fmt_amount(total_d, devise))
+    with c3: render_kpi("Crédits Période", fmt_amount(total_c, devise))
+    with c4: render_kpi("Solde Final", fmt_amount(final_bal, devise), "À la fin de période")
+    
+    if acc_period.empty:
+        st.info(f"Aucun mouvement pour le compte {code_sel} sur cette période.")
+        if opening_bal != 0:
+            st.warning(f"Note : Le compte présente un solde de report de {fmt_amount(opening_bal, devise)}.")
+    else:
+        view = acc_period.copy()
         view["Date"] = view["date"].dt.strftime("%d/%m/%Y")
         view["Débit"] = view["debit"].apply(lambda x: fmt_amount(x, devise) if x>0 else "—")
         view["Crédit"] = view["credit"].apply(lambda x: fmt_amount(x, devise) if x>0 else "—")
         view["Solde Progressif"] = view["Solde"].apply(lambda x: fmt_amount(x, devise))
         
         st.dataframe(
-            view[["Date", "piece_no", "libelle", "Débit", "Crédit", "Solde Progressif"]]
-            .rename(columns={"piece_no": "Pièce", "libelle": "Libellé"}),
+            view[["Date", "piece_no", "libelle", "journal", "Débit", "Crédit", "Solde Progressif"]]
+            .rename(columns={"piece_no": "Pièce", "libelle": "Libellé", "journal": "Jnl"}),
             use_container_width=True, hide_index=True
         )
         
-        csv = acc_ledger[["date", "piece_no", "libelle", "debit", "credit", "Solde"]].to_csv(index=False).encode("utf-8-sig")
-        st.download_button(f"📥 Exporter le Grand Livre ({code_sel})", csv, file_name=f"grand_livre_{code_sel}_{year}.csv", mime="text/csv")
+        csv_data = acc_period[["date", "piece_no", "libelle", "journal", "debit", "credit", "Solde"]].to_csv(index=False).encode("utf-8-sig")
+        st.download_button(f"📥 Exporter le Grand Livre ({code_sel})", csv_data, file_name=f"grand_livre_{code_sel}_{year}_{month}.csv", mime="text/csv")
 
 
 def monthly_closing_table(
