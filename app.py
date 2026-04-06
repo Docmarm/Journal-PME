@@ -1421,10 +1421,22 @@ def page_dashboard(entries_df: pd.DataFrame, lines_df: pd.DataFrame, accounts_df
 
 
 
+
 def page_entry_input(user_uid: str, accounts_df: pd.DataFrame, cfg: Dict[str, Any]) -> None:
     devise = cfg.get("devise", "FCFA")
-    st.title("Saisie des Écritures")
-    tab_guided, tab_manual = st.tabs(["✨ Assistant de saisie", "✍️ Écriture manuelle"])
+
+    # ── Feedback persistant après rerun ──
+    if st.session_state.pop("_save_ok", False):
+        st.success(f"✅ {st.session_state.pop('_save_msg', 'Écriture enregistrée.')}", icon="✅")
+    if st.session_state.pop("_save_err", False):
+        st.error(f"❌ {st.session_state.pop('_save_msg', 'Erreur lors de l\'enregistrement.')}")
+
+    bs = st.session_state.get("backend_status", "")
+    if bs:
+        st.warning(f"⚠️ Connexion Firebase : {bs}")
+
+    st.title("✍️ Saisie des Écritures")
+    tab_guided, tab_manual = st.tabs(["✨ Assistant guidé", "🔧 Écriture manuelle"])
 
     revenue_options = account_display_options(accounts_df, prefixes=("7",))
     expense_options = [opt for opt in account_display_options(accounts_df, prefixes=("6",)) if not opt.startswith("681 - ")]
@@ -1433,8 +1445,11 @@ def page_entry_input(user_uid: str, accounts_df: pd.DataFrame, cfg: Dict[str, An
     if not expense_options:
         expense_options = ["602 - Fournitures et services extérieurs"]
 
+    # ══════════════════════════════════════════════
+    #  ONGLET 1 — ASSISTANT GUIDÉ
+    # ══════════════════════════════════════════════
     with tab_guided:
-        st.markdown("#### Étape 1 — Nature et moyen de paiement")
+        st.markdown("### Étape 1 — Nature & moyen de paiement")
         col_nat, col_pay = st.columns(2)
         with col_nat:
             nature = st.selectbox(
@@ -1450,21 +1465,54 @@ def page_entry_input(user_uid: str, accounts_df: pd.DataFrame, cfg: Dict[str, An
                 key="guided_moyen_sel",
             )
         template = NATURE_MAP[nature]["templates"][moyen]
-        st.info(f"📋 **Écriture générée :** {template}")
-        st.markdown("---")
-        st.markdown("#### Étape 2 — Détails de l'écriture")
 
+        # ── Aperçu dynamique de l'écriture ──
+        PREVIEW_MAP = {
+            "Vente encaissée en caisse":              ("57 Caisse", "701 Ventes", "🟢 Entrée argent", "#22c55e"),
+            "Vente encaissée en banque":              ("521 Banque", "701 Ventes", "🟢 Entrée argent", "#22c55e"),
+            "Dépense payée par caisse":               ("6xx Charge", "57 Caisse", "🔴 Sortie argent", "#ef4444"),
+            "Dépense payée par banque":               ("6xx Charge", "521 Banque", "🔴 Sortie argent", "#ef4444"),
+            "Virement caisse vers banque":            ("521 Banque", "57 Caisse", "🔵 Virement", "#3b82f6"),
+            "Virement banque vers caisse":            ("57 Caisse", "521 Banque", "🔵 Virement", "#3b82f6"),
+            "Encaissement client en caisse":          ("57 Caisse", "411 Clients", "🟢 Encaissement", "#22c55e"),
+            "Encaissement client en banque":          ("521 Banque", "411 Clients", "🟢 Encaissement", "#22c55e"),
+            "Paiement fournisseur par caisse":        ("401 Fournisseurs", "57 Caisse", "🔴 Paiement", "#ef4444"),
+            "Paiement fournisseur par banque":        ("401 Fournisseurs", "521 Banque", "🔴 Paiement", "#ef4444"),
+            "Achat d'immobilisation payé en caisse":  ("2xx Immobilisation", "57 Caisse", "🟡 Investissement", "#f59e0b"),
+            "Achat d'immobilisation payé en banque":  ("2xx Immobilisation", "521 Banque", "🟡 Investissement", "#f59e0b"),
+        }
+        prev = PREVIEW_MAP.get(template)
+        if prev:
+            debit_acc, credit_acc, tag, color = prev
+            st.markdown(
+                f"""
+                <div style="background:{'rgba(34,197,94,0.08)' if color=='#22c55e' else 'rgba(239,68,68,0.08)' if color=='#ef4444' else 'rgba(59,130,246,0.08)' if color=='#3b82f6' else 'rgba(245,158,11,0.08)'};
+                            border:1px solid {color}40; border-radius:10px; padding:14px 18px; margin:10px 0;">
+                  <div style="font-size:0.8rem;color:{color};font-weight:700;margin-bottom:8px;">{tag} — {template}</div>
+                  <div style="display:flex;align-items:center;gap:12px;font-size:0.95rem;">
+                    <span style="background:#fff2;padding:5px 10px;border-radius:6px;font-weight:600;">📤 DÉBIT<br><small style="font-weight:400">{debit_acc}</small></span>
+                    <span style="font-size:1.4rem;color:{color};">→</span>
+                    <span style="background:#fff2;padding:5px 10px;border-radius:6px;font-weight:600;">📥 CRÉDIT<br><small style="font-weight:400">{credit_acc}</small></span>
+                  </div>
+                  <div style="margin-top:8px;font-size:0.78rem;opacity:0.7;">
+                    Le compte DÉBIT augmente · Le compte CRÉDIT diminue (ou est la source)
+                  </div>
+                </div>
+                """,
+                unsafe_allow_html=True,
+            )
+
+        st.markdown("### Étape 2 — Remplir les détails")
         with st.form("guided_entry_form", clear_on_submit=True):
             c1, c2, c3 = st.columns(3)
             with c1:
-                entry_date = st.date_input("Date", value=date.today())
-                piece_no = st.text_input("N° Pièce", placeholder="FAC-001")
+                entry_date = st.date_input("📅 Date", value=date.today())
+                piece_no = st.text_input("🔖 N° Pièce", placeholder="FAC-001 / DEP-001")
             with c2:
-                amount = st.number_input(f"Montant ({devise})", min_value=0.0, step=1000.0)
-                label = st.text_input("Libellé", placeholder="Description de l'opération")
+                amount = st.number_input(f"💰 Montant ({devise})", min_value=0.0, step=1000.0)
+                label = st.text_input("📝 Libellé *", placeholder="Ex: Vente de produits à M. Diallo")
             with c3:
-                memo = st.text_input("Note / Référence", placeholder="Optionnel")
-                st.write("")
+                memo = st.text_input("📌 Note / Référence", placeholder="Optionnel")
 
             revenue_opt = None
             expense_opt = None
@@ -1472,269 +1520,413 @@ def page_entry_input(user_uid: str, accounts_df: pd.DataFrame, cfg: Dict[str, An
             salvage_value = 0.0
 
             if template in {"Vente encaissée en caisse", "Vente encaissée en banque"}:
-                revenue_opt = st.selectbox("Compte de produit", revenue_options, index=0)
+                revenue_opt = st.selectbox("💼 Compte de produit (701…)", revenue_options, index=0)
 
             if template in {"Dépense payée par caisse", "Dépense payée par banque"}:
-                expense_opt = st.selectbox("Compte de charge", expense_options, index=0)
+                expense_opt = st.selectbox("📂 Compte de charge (6xx)", expense_options, index=0)
 
             if template in {"Achat d'immobilisation payé en caisse", "Achat d'immobilisation payé en banque"}:
-                asset_family = st.selectbox("Famille d'immobilisation", list(ASSET_CATALOG.keys()))
-                salvage_value = st.number_input("Valeur résiduelle estimée", min_value=0.0, step=1000.0)
+                asset_family = st.selectbox("🏗️ Famille d'immobilisation", list(ASSET_CATALOG.keys()))
+                salvage_value = st.number_input(f"Valeur résiduelle ({devise})", min_value=0.0, step=1000.0)
                 if asset_family:
-                    st.caption(f"Durée d'amortissement proposée : {ASSET_CATALOG[asset_family]['life_years']} ans")
+                    st.caption(f"⏱️ Durée amortissement : {ASSET_CATALOG[asset_family]['life_years']} ans (linéaire)")
 
-            submitted = st.form_submit_button("✅ Enregistrer l'écriture", type="primary", use_container_width=True)
+            submitted = st.form_submit_button(
+                "💾 Enregistrer l'écriture",
+                type="primary",
+                use_container_width=True,
+            )
             if submitted:
                 if amount <= 0:
-                    st.error("Le montant doit être supérieur à 0.")
+                    st.error("⚠️ Le montant doit être supérieur à 0.")
                 elif not label.strip():
-                    st.error("Le libellé est obligatoire.")
+                    st.error("⚠️ Le libellé est obligatoire.")
                 else:
-                    lines: List[Dict[str, Any]] = []
-                    journal = "OD"
+                    lines_to_save: List[Dict[str, Any]] = []
+                    journal_code = "OD"
                     entry_type = "guided"
-                    asset_payload = None
+                    asset_payload: Optional[Dict[str, Any]] = None
 
                     if template == "Vente encaissée en caisse":
                         rc, rl = parse_account_option(revenue_opt)
-                        lines = [
-                            {"account_code": "57", "account_label": "Caisse", "debit": amount, "credit": 0, "memo": memo},
-                            {"account_code": rc, "account_label": rl, "debit": 0, "credit": amount, "memo": memo},
+                        lines_to_save = [
+                            {"account_code": "57",  "account_label": "Caisse", "debit": amount, "credit": 0.0, "memo": memo},
+                            {"account_code": rc,    "account_label": rl,       "debit": 0.0,    "credit": amount, "memo": memo},
                         ]
-                        journal = "CAI"
-
+                        journal_code = "CAI"
                     elif template == "Vente encaissée en banque":
                         rc, rl = parse_account_option(revenue_opt)
-                        lines = [
-                            {"account_code": "521", "account_label": "Banque", "debit": amount, "credit": 0, "memo": memo},
-                            {"account_code": rc, "account_label": rl, "debit": 0, "credit": amount, "memo": memo},
+                        lines_to_save = [
+                            {"account_code": "521", "account_label": "Banque", "debit": amount, "credit": 0.0, "memo": memo},
+                            {"account_code": rc,    "account_label": rl,       "debit": 0.0,    "credit": amount, "memo": memo},
                         ]
-                        journal = "BQ"
-
+                        journal_code = "BQ"
                     elif template == "Dépense payée par caisse":
                         ec, el = parse_account_option(expense_opt)
-                        lines = [
-                            {"account_code": ec, "account_label": el, "debit": amount, "credit": 0, "memo": memo},
-                            {"account_code": "57", "account_label": "Caisse", "debit": 0, "credit": amount, "memo": memo},
+                        lines_to_save = [
+                            {"account_code": ec,   "account_label": el,       "debit": amount, "credit": 0.0, "memo": memo},
+                            {"account_code": "57", "account_label": "Caisse", "debit": 0.0,    "credit": amount, "memo": memo},
                         ]
-                        journal = "CAI"
-
+                        journal_code = "CAI"
                     elif template == "Dépense payée par banque":
                         ec, el = parse_account_option(expense_opt)
-                        lines = [
-                            {"account_code": ec, "account_label": el, "debit": amount, "credit": 0, "memo": memo},
-                            {"account_code": "521", "account_label": "Banque", "debit": 0, "credit": amount, "memo": memo},
+                        lines_to_save = [
+                            {"account_code": ec,    "account_label": el,       "debit": amount, "credit": 0.0, "memo": memo},
+                            {"account_code": "521", "account_label": "Banque", "debit": 0.0,    "credit": amount, "memo": memo},
                         ]
-                        journal = "BQ"
-
+                        journal_code = "BQ"
                     elif template == "Virement caisse vers banque":
-                        lines = [
-                            {"account_code": "521", "account_label": "Banque", "debit": amount, "credit": 0, "memo": memo},
-                            {"account_code": "57", "account_label": "Caisse", "debit": 0, "credit": amount, "memo": memo},
+                        lines_to_save = [
+                            {"account_code": "521", "account_label": "Banque", "debit": amount, "credit": 0.0, "memo": memo},
+                            {"account_code": "57",  "account_label": "Caisse", "debit": 0.0,    "credit": amount, "memo": memo},
                         ]
-                        journal = "TR"
-
+                        journal_code = "TR"
                     elif template == "Virement banque vers caisse":
-                        lines = [
-                            {"account_code": "57", "account_label": "Caisse", "debit": amount, "credit": 0, "memo": memo},
-                            {"account_code": "521", "account_label": "Banque", "debit": 0, "credit": amount, "memo": memo},
+                        lines_to_save = [
+                            {"account_code": "57",  "account_label": "Caisse", "debit": amount, "credit": 0.0, "memo": memo},
+                            {"account_code": "521", "account_label": "Banque", "debit": 0.0,    "credit": amount, "memo": memo},
                         ]
-                        journal = "TR"
-
+                        journal_code = "TR"
                     elif template == "Encaissement client en caisse":
-                        lines = [
-                            {"account_code": "57", "account_label": "Caisse", "debit": amount, "credit": 0, "memo": memo},
-                            {"account_code": "411", "account_label": "Clients", "debit": 0, "credit": amount, "memo": memo},
+                        lines_to_save = [
+                            {"account_code": "57",  "account_label": "Caisse",  "debit": amount, "credit": 0.0, "memo": memo},
+                            {"account_code": "411", "account_label": "Clients", "debit": 0.0,    "credit": amount, "memo": memo},
                         ]
-                        journal = "CAI"
-
+                        journal_code = "CAI"
                     elif template == "Encaissement client en banque":
-                        lines = [
-                            {"account_code": "521", "account_label": "Banque", "debit": amount, "credit": 0, "memo": memo},
-                            {"account_code": "411", "account_label": "Clients", "debit": 0, "credit": amount, "memo": memo},
+                        lines_to_save = [
+                            {"account_code": "521", "account_label": "Banque",  "debit": amount, "credit": 0.0, "memo": memo},
+                            {"account_code": "411", "account_label": "Clients", "debit": 0.0,    "credit": amount, "memo": memo},
                         ]
-                        journal = "BQ"
-
+                        journal_code = "BQ"
                     elif template == "Paiement fournisseur par caisse":
-                        lines = [
-                            {"account_code": "401", "account_label": "Fournisseurs", "debit": amount, "credit": 0, "memo": memo},
-                            {"account_code": "57", "account_label": "Caisse", "debit": 0, "credit": amount, "memo": memo},
+                        lines_to_save = [
+                            {"account_code": "401", "account_label": "Fournisseurs", "debit": amount, "credit": 0.0, "memo": memo},
+                            {"account_code": "57",  "account_label": "Caisse",       "debit": 0.0,    "credit": amount, "memo": memo},
                         ]
-                        journal = "CAI"
-
+                        journal_code = "CAI"
                     elif template == "Paiement fournisseur par banque":
-                        lines = [
-                            {"account_code": "401", "account_label": "Fournisseurs", "debit": amount, "credit": 0, "memo": memo},
-                            {"account_code": "521", "account_label": "Banque", "debit": 0, "credit": amount, "memo": memo},
+                        lines_to_save = [
+                            {"account_code": "401", "account_label": "Fournisseurs", "debit": amount, "credit": 0.0, "memo": memo},
+                            {"account_code": "521", "account_label": "Banque",       "debit": 0.0,    "credit": amount, "memo": memo},
                         ]
-                        journal = "BQ"
-
+                        journal_code = "BQ"
                     elif template == "Achat d'immobilisation payé en caisse":
                         meta = ASSET_CATALOG[asset_family]
-                        lines = [
-                            {"account_code": meta["asset_account"], "account_label": meta["asset_label"], "debit": amount, "credit": 0, "memo": memo},
-                            {"account_code": "57", "account_label": "Caisse", "debit": 0, "credit": amount, "memo": memo},
+                        lines_to_save = [
+                            {"account_code": meta["asset_account"], "account_label": meta["asset_label"], "debit": amount, "credit": 0.0, "memo": memo},
+                            {"account_code": "57",  "account_label": "Caisse", "debit": 0.0, "credit": amount, "memo": memo},
                         ]
-                        journal = "CAI"
+                        journal_code = "CAI"
                         entry_type = "asset_purchase"
                         asset_payload = {
-                            "name": label.strip(),
-                            "asset_family": asset_family,
-                            "acquisition_date": entry_date.isoformat(),
-                            "amount": float(amount),
-                            "salvage_value": float(salvage_value),
-                            "useful_life_years": meta["life_years"],
-                            "asset_account": meta["asset_account"],
-                            "asset_label": meta["asset_label"],
-                            "depr_account": meta["depr_account"],
-                            "depr_label": meta["depr_label"],
-                            "expense_account": meta["expense_account"],
-                            "expense_label": meta["expense_label"],
+                            "name": label.strip(), "asset_family": asset_family,
+                            "acquisition_date": entry_date.isoformat(), "amount": float(amount),
+                            "salvage_value": float(salvage_value), "useful_life_years": meta["life_years"],
+                            "asset_account": meta["asset_account"], "asset_label": meta["asset_label"],
+                            "depr_account": meta["depr_account"], "depr_label": meta["depr_label"],
+                            "expense_account": meta["expense_account"], "expense_label": meta["expense_label"],
                             "status": "active",
                         }
-
                     elif template == "Achat d'immobilisation payé en banque":
                         meta = ASSET_CATALOG[asset_family]
-                        lines = [
-                            {"account_code": meta["asset_account"], "account_label": meta["asset_label"], "debit": amount, "credit": 0, "memo": memo},
-                            {"account_code": "521", "account_label": "Banque", "debit": 0, "credit": amount, "memo": memo},
+                        lines_to_save = [
+                            {"account_code": meta["asset_account"], "account_label": meta["asset_label"], "debit": amount, "credit": 0.0, "memo": memo},
+                            {"account_code": "521", "account_label": "Banque", "debit": 0.0, "credit": amount, "memo": memo},
                         ]
-                        journal = "BQ"
+                        journal_code = "BQ"
                         entry_type = "asset_purchase"
                         asset_payload = {
-                            "name": label.strip(),
-                            "asset_family": asset_family,
-                            "acquisition_date": entry_date.isoformat(),
-                            "amount": float(amount),
-                            "salvage_value": float(salvage_value),
-                            "useful_life_years": meta["life_years"],
-                            "asset_account": meta["asset_account"],
-                            "asset_label": meta["asset_label"],
-                            "depr_account": meta["depr_account"],
-                            "depr_label": meta["depr_label"],
-                            "expense_account": meta["expense_account"],
-                            "expense_label": meta["expense_label"],
+                            "name": label.strip(), "asset_family": asset_family,
+                            "acquisition_date": entry_date.isoformat(), "amount": float(amount),
+                            "salvage_value": float(salvage_value), "useful_life_years": meta["life_years"],
+                            "asset_account": meta["asset_account"], "asset_label": meta["asset_label"],
+                            "depr_account": meta["depr_account"], "depr_label": meta["depr_label"],
+                            "expense_account": meta["expense_account"], "expense_label": meta["expense_label"],
                             "status": "active",
                         }
 
-                    header = {
-                        "date": entry_date.isoformat(),
-                        "piece_no": piece_no.strip(),
-                        "libelle": label.strip(),
-                        "journal": journal,
-                        "type": entry_type,
-                    }
-                    ok, msg = save_entry_with_lines(user_uid, header, lines, asset_payload)
-                    if ok:
-                        st.success(msg)
-                        st.rerun()
+                    if not lines_to_save:
+                        st.error("❌ Erreur interne : aucune ligne générée pour ce template.")
                     else:
-                        st.error(msg)
+                        header = {
+                            "date": entry_date.isoformat(),
+                            "piece_no": piece_no.strip(),
+                            "libelle": label.strip(),
+                            "journal": journal_code,
+                            "type": entry_type,
+                        }
+                        ok, msg = save_entry_with_lines(user_uid, header, lines_to_save, asset_payload)
+                        st.session_state["_save_ok"] = ok
+                        st.session_state["_save_err"] = not ok
+                        st.session_state["_save_msg"] = msg
+                        bs2 = st.session_state.get("backend_status", "")
+                        if bs2:
+                            st.session_state["_save_msg"] += f" ({bs2})"
+                        st.rerun()
 
+    # ══════════════════════════════════════════════
+    #  ONGLET 2 — ÉCRITURE MANUELLE
+    # ══════════════════════════════════════════════
     with tab_manual:
+        st.markdown(
+            """
+            <div style="background:rgba(59,130,246,0.07);border:1px solid #3b82f640;border-radius:8px;padding:10px 16px;margin-bottom:12px;font-size:0.88rem;">
+            📌 <strong>Rappel partie double</strong> · Somme Débits = Somme Crédits obligatoire.
+            &nbsp;|&nbsp; <strong>Débit</strong> = entrée sur un actif ou une charge &nbsp;
+            <strong>Crédit</strong> = sortie d'actif ou constatation d'une dette / produit
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
         options = account_display_options(accounts_df)
         with st.form("manual_entry_form", clear_on_submit=True):
-            st.markdown("#### Écriture manuelle débit / crédit")
             h1, h2, h3 = st.columns(3)
             with h1:
-                entry_date = st.date_input("Date", value=date.today(), key="m_date")
-                piece_no = st.text_input("N° Pièce", key="m_piece")
+                entry_date_m = st.date_input("📅 Date", value=date.today(), key="m_date")
+                piece_no_m = st.text_input("🔖 N° Pièce", key="m_piece")
             with h2:
-                journal = st.selectbox("Journal", ["OD", "CAI", "BQ", "TR"], key="m_journal")
-                label = st.text_input("Libellé", key="m_label")
+                journal_m = st.selectbox(
+                    "📒 Journal",
+                    [("OD", "OD — Opérations Diverses"), ("CAI", "CAI — Caisse"), ("BQ", "BQ — Banque"), ("TR", "TR — Trésorerie")],
+                    format_func=lambda x: x[1],
+                    key="m_journal",
+                )
+                label_m = st.text_input("📝 Libellé *", key="m_label")
             with h3:
-                nb_lines = st.number_input("Nombre de lignes", min_value=2, max_value=10, value=4, step=1, key="m_nb_lines")
+                nb_lines = st.number_input("Nb lignes", min_value=2, max_value=10, value=4, step=1, key="m_nb_lines")
+
+            st.markdown("---")
+            header_cols = st.columns([3, 2, 2, 3])
+            header_cols[0].markdown("**Compte**")
+            header_cols[1].markdown("**📤 Débit**")
+            header_cols[2].markdown("**📥 Crédit**")
+            header_cols[3].markdown("**Mémo**")
 
             manual_lines: List[Dict[str, Any]] = []
             for idx in range(1, int(nb_lines) + 1):
-                st.markdown(f"**Ligne {idx}**")
                 c1, c2, c3, c4 = st.columns([3, 2, 2, 3])
                 with c1:
-                    account_opt = st.selectbox("Compte", options, key=f"acc_{idx}")
+                    account_opt = st.selectbox(f"", options, key=f"acc_{idx}", label_visibility="collapsed")
                 with c2:
-                    debit = st.number_input("Débit", min_value=0.0, step=1000.0, key=f"deb_{idx}")
+                    debit_m = st.number_input("", min_value=0.0, step=1000.0, key=f"deb_{idx}", label_visibility="collapsed")
                 with c3:
-                    credit = st.number_input("Crédit", min_value=0.0, step=1000.0, key=f"cred_{idx}")
+                    credit_m = st.number_input("", min_value=0.0, step=1000.0, key=f"cred_{idx}", label_visibility="collapsed")
                 with c4:
-                    memo = st.text_input("Mémo", key=f"memo_{idx}")
-                code, acc_label = parse_account_option(account_opt)
+                    memo_m = st.text_input("", key=f"memo_{idx}", label_visibility="collapsed")
+                code_m, acc_label_m = parse_account_option(account_opt)
                 manual_lines.append({
-                    "account_code": code,
-                    "account_label": acc_label,
-                    "debit": debit,
-                    "credit": credit,
-                    "memo": memo,
+                    "account_code": code_m, "account_label": acc_label_m,
+                    "debit": debit_m, "credit": credit_m, "memo": memo_m,
                 })
 
-            submit_manual = st.form_submit_button("✅ Enregistrer l'écriture manuelle", type="primary", use_container_width=True)
+            total_d = sum(safe_float(l.get("debit"), 0) for l in manual_lines)
+            total_c = sum(safe_float(l.get("credit"), 0) for l in manual_lines)
+            balance_ok = round(total_d - total_c, 2) == 0 and total_d > 0
+
+            bal_color = "#22c55e" if balance_ok else "#ef4444"
+            bal_icon  = "✅" if balance_ok else "⚖️"
+            st.markdown(
+                f"<div style='text-align:right;font-size:0.9rem;color:{bal_color};font-weight:700;margin:6px 0;'>"
+                f"{bal_icon} Débit : {fmt_amount(total_d, devise)} &nbsp;|&nbsp; Crédit : {fmt_amount(total_c, devise)}"
+                f"{'&nbsp; — Équilibré' if balance_ok else '&nbsp; — ⚠️ Non équilibré'}</div>",
+                unsafe_allow_html=True,
+            )
+
+            journal_code_m = journal_m[0] if isinstance(journal_m, tuple) else journal_m
+            submit_manual = st.form_submit_button(
+                "💾 Enregistrer l'écriture manuelle",
+                type="primary",
+                use_container_width=True,
+                disabled=False,
+            )
             if submit_manual:
-                if not label.strip():
-                    st.error("Le libellé est obligatoire.")
+                if not label_m.strip():
+                    st.error("⚠️ Le libellé est obligatoire.")
                 else:
-                    header = {
-                        "date": entry_date.isoformat(),
-                        "piece_no": piece_no.strip(),
-                        "libelle": label.strip(),
-                        "journal": journal,
+                    header_m = {
+                        "date": entry_date_m.isoformat(),
+                        "piece_no": piece_no_m.strip(),
+                        "libelle": label_m.strip(),
+                        "journal": journal_code_m,
                         "type": "manual",
                     }
-                    ok, msg = save_entry_with_lines(user_uid, header, manual_lines, None)
-                    if ok:
-                        st.success(msg)
-                        st.rerun()
-                    else:
-                        st.error(msg)
+                    ok_m, msg_m = save_entry_with_lines(user_uid, header_m, manual_lines, None)
+                    st.session_state["_save_ok"] = ok_m
+                    st.session_state["_save_err"] = not ok_m
+                    st.session_state["_save_msg"] = msg_m
+                    bs3 = st.session_state.get("backend_status", "")
+                    if bs3:
+                        st.session_state["_save_msg"] += f" ({bs3})"
+                    st.rerun()
 
 
-def page_general_journal(user_uid: str, entries_df: pd.DataFrame, lines_df: pd.DataFrame, year: int, month: str, cfg: Dict[str, Any]) -> None:
+
+def page_general_journal(
+    user_uid: str,
+    entries_df: pd.DataFrame,
+    lines_df: pd.DataFrame,
+    year: int,
+    month: str,
+    cfg: Dict[str, Any],
+) -> None:
     devise = cfg.get("devise", "FCFA")
-    st.title("Journal Général")
-    search = st.text_input("🔎 Rechercher une écriture", placeholder="Libellé, pièce, journal, type")
+    st.title("📔 Journal Général")
+
+    # ── Barre de recherche + filtre journal ──
+    col_s, col_j, col_exp = st.columns([3, 2, 2])
+    with col_s:
+        search = st.text_input("🔎 Rechercher", placeholder="Libellé, pièce, type…")
+    with col_j:
+        journal_filter = st.selectbox("Filtrer par journal", ["Tous", "OD", "CAI", "BQ", "TR"])
+    with col_exp:
+        st.write("")
+        show_lines = st.toggle("Afficher les lignes comptables", value=True)
+
     filtered_entries = filter_entries(entries_df, year, month, search)
+    if journal_filter != "Tous":
+        filtered_entries = filtered_entries[filtered_entries["journal"] == journal_filter]
+
+    # ── KPIs ──
+    n_ecr = len(filtered_entries)
+    total_d = filtered_entries["total_debit"].sum() if not filtered_entries.empty else 0.0
+    total_c = filtered_entries["total_credit"].sum() if not filtered_entries.empty else 0.0
+    is_balanced = round(total_d - total_c, 2) == 0
+
+    k1, k2, k3, k4 = st.columns(4)
+    with k1:
+        render_kpi("Écritures", str(n_ecr), f"{year} · {month}")
+    with k2:
+        render_kpi("Total Débits", fmt_amount(total_d, devise), "Mouvements débit")
+    with k3:
+        render_kpi("Total Crédits", fmt_amount(total_c, devise), "Mouvements crédit")
+    with k4:
+        bal_label = "✅ Équilibré" if is_balanced else "⚠️ Déséquilibré"
+        render_kpi("Équilibre", bal_label, "Débit = Crédit ?")
+
     if filtered_entries.empty:
-        st.info("Aucune écriture trouvée.")
+        st.info("Aucune écriture trouvée pour les filtres sélectionnés.")
         return
-    all_lines = ledger_df(entries_df, lines_df)
+
     csv = filtered_entries.to_csv(index=False).encode("utf-8-sig")
-    st.download_button("📥 Exporter le journal filtré", csv, file_name=f"journal_general_{year}_{month}.csv", mime="text/csv")
+    st.download_button(
+        "📥 Exporter le journal filtré (CSV)",
+        csv,
+        file_name=f"journal_general_{year}_{month}.csv",
+        mime="text/csv",
+    )
+
+    all_lines = ledger_df(entries_df, lines_df)
+
+    st.markdown("")
+    # ── Confirmation suppression ──
+    if "confirm_delete_id" not in st.session_state:
+        st.session_state["confirm_delete_id"] = None
+
+    confirm_id = st.session_state.get("confirm_delete_id")
+    if confirm_id:
+        row_del = filtered_entries[filtered_entries["entry_id"] == confirm_id]
+        if not row_del.empty:
+            lbl = row_del.iloc[0].get("libelle", "")
+            st.warning(f"⚠️ Confirmer la suppression de **{lbl}** ?")
+            cc1, cc2 = st.columns(2)
+            with cc1:
+                if st.button("🗑️ Oui, supprimer", type="primary", key="confirm_del_yes"):
+                    ok, msg = delete_entry_with_children(user_uid, confirm_id)
+                    st.session_state["confirm_delete_id"] = None
+                    st.session_state["_save_ok"] = ok
+                    st.session_state["_save_err"] = not ok
+                    st.session_state["_save_msg"] = msg
+                    st.rerun()
+            with cc2:
+                if st.button("✖️ Annuler", key="confirm_del_no"):
+                    st.session_state["confirm_delete_id"] = None
+                    st.rerun()
+            st.stop()
+
+    # ── Feedback persistant ──
+    if st.session_state.pop("_save_ok", False):
+        st.success(f"✅ {st.session_state.pop('_save_msg', '')}", icon="✅")
+    if st.session_state.pop("_save_err", False):
+        st.error(f"❌ {st.session_state.pop('_save_msg', '')}")
+
+    # ── Liste des écritures ──
+    JOURNAL_COLORS = {"CAI": "#22c55e", "BQ": "3b82f6", "TR": "#8b5cf6", "OD": "#94a3b8"}
+    TYPE_LABELS    = {"guided": "✨ Assisté", "manual": "🔧 Manuel", "depreciation": "📉 Amort.", "asset_purchase": "🏗️ Immo."}
 
     for _, row in filtered_entries.iterrows():
-        title = (
-            f"📄 {row['date'].strftime('%d/%m/%Y') if pd.notna(row['date']) else '—'}"
-            f" | {row.get('piece_no', '') or '—'}"
-            f" | {row.get('libelle', '')}"
-            f" | {row.get('journal', '')}"
-            f" | {fmt_amount(row.get('total_debit', 0), devise)}"
+        date_str  = row["date"].strftime("%d/%m/%Y") if pd.notna(row["date"]) else "—"
+        piece     = row.get("piece_no", "") or "—"
+        libelle   = row.get("libelle", "")
+        jcode     = row.get("journal", "OD")
+        type_lbl  = TYPE_LABELS.get(row.get("type", ""), row.get("type", ""))
+        t_debit   = fmt_amount(row.get("total_debit", 0), devise)
+        t_credit  = fmt_amount(row.get("total_credit", 0), devise)
+        entry_id  = row["entry_id"]
+        color     = JOURNAL_COLORS.get(jcode, "#94a3b8")
+
+        header_html = (
+            f'<span style="color:{color};font-weight:700;font-size:0.85rem;margin-right:8px;">[{jcode}]</span>'
+            f'<strong>{date_str}</strong> &nbsp;·&nbsp; {piece} &nbsp;·&nbsp; {libelle}'
+            f'&nbsp;<span style="opacity:0.6;font-size:0.82rem;">{type_lbl}</span>'
+            f'&nbsp;&nbsp;<code style="font-size:0.8rem;">D: {t_debit} | C: {t_credit}</code>'
         )
-        with st.expander(title):
-            sub = all_lines[all_lines["entry_id"] == row["entry_id"]].copy()
-            if not sub.empty:
-                sub["Débit"] = sub["debit"].apply(lambda x: fmt_amount(x, devise) if x else "—")
-                sub["Crédit"] = sub["credit"].apply(lambda x: fmt_amount(x, devise) if x else "—")
-                st.dataframe(
-                    sub[["account_code", "account_label", "Débit", "Crédit", "memo"]].rename(
-                        columns={
-                            "account_code": "Compte",
-                            "account_label": "Intitulé",
-                            "memo": "Mémo",
-                        }
-                    ),
-                    use_container_width=True,
-                    hide_index=True,
-                )
-            c1, c2, c3 = st.columns([2, 2, 1])
-            with c1:
-                st.write(f"**Type :** {row.get('type', '')}")
-            with c2:
-                st.write(f"**Statut :** {row.get('status', '')}")
-            with c3:
-                if st.button("🗑️ Supprimer", key=f"del_{row['entry_id']}"):
-                    ok, msg = delete_entry_with_children(user_uid, row["entry_id"])
-                    if ok:
-                        st.success(msg)
-                        st.rerun()
-                    else:
-                        st.error(msg)
+
+        with st.expander(f"[{jcode}] {date_str} · {piece} · {libelle} | {t_debit}", expanded=False):
+            st.markdown(header_html, unsafe_allow_html=True)
+
+            if show_lines:
+                sub = all_lines[all_lines["entry_id"] == entry_id].copy()
+                if not sub.empty:
+                    sub = sub.sort_values("account_code").reset_index(drop=True)
+                    # Build visual table
+                    rows_html = ""
+                    for _, ln in sub.iterrows():
+                        d_val  = fmt_amount(ln["debit"],  devise) if ln["debit"]  > 0 else "—"
+                        c_val  = fmt_amount(ln["credit"], devise) if ln["credit"] > 0 else "—"
+                        d_col  = "#22c55e" if ln["debit"]  > 0 else "#64748b"
+                        c_col  = "#ef4444" if ln["credit"] > 0 else "#64748b"
+                        memo   = ln.get("memo", "") or ""
+                        rows_html += (
+                            f'<tr style="border-bottom:1px solid #ffffff15">'
+                            f'<td style="padding:5px 8px;font-weight:600;font-size:0.85rem;">{ln["account_code"]}</td>'
+                            f'<td style="padding:5px 8px;font-size:0.85rem;">{ln["account_label"]}</td>'
+                            f'<td style="padding:5px 8px;color:{d_col};font-weight:700;text-align:right;">{d_val}</td>'
+                            f'<td style="padding:5px 8px;color:{c_col};font-weight:700;text-align:right;">{c_val}</td>'
+                            f'<td style="padding:5px 8px;font-size:0.8rem;opacity:0.7;">{memo}</td>'
+                            f'</tr>'
+                        )
+                    st.markdown(
+                        f'<table style="width:100%;border-collapse:collapse;font-family:monospace;">'
+                        f'<thead><tr style="border-bottom:2px solid #ffffff30;opacity:0.6;font-size:0.78rem;">'
+                        f'<th style="padding:4px 8px;text-align:left;">Code</th>'
+                        f'<th style="padding:4px 8px;text-align:left;">Compte</th>'
+                        f'<th style="padding:4px 8px;text-align:right;">📤 Débit</th>'
+                        f'<th style="padding:4px 8px;text-align:right;">📥 Crédit</th>'
+                        f'<th style="padding:4px 8px;text-align:left;">Mémo</th>'
+                        f'</tr></thead><tbody>{rows_html}</tbody></table>',
+                        unsafe_allow_html=True,
+                    )
+                    td = sub["debit"].sum()
+                    tc = sub["credit"].sum()
+                    eq = "✅ Équilibré" if round(td - tc, 2) == 0 else "⚠️ Déséquilibré"
+                    st.markdown(
+                        f'<div style="text-align:right;font-size:0.82rem;margin-top:6px;opacity:0.8;">'
+                        f'Σ Débit : <strong>{fmt_amount(td, devise)}</strong> &nbsp;|&nbsp; '
+                        f'Σ Crédit : <strong>{fmt_amount(tc, devise)}</strong> &nbsp; {eq}</div>',
+                        unsafe_allow_html=True,
+                    )
+
+            st.markdown("")
+            act1, act2, act3 = st.columns([2, 2, 1])
+            with act1:
+                st.caption(f"Type : {type_lbl} &nbsp;·&nbsp; Statut : {row.get('status', '')}")
+            with act2:
+                st.caption(f"Créé le : {row.get('created_at', '—')[:10] if row.get('created_at') else '—'}")
+            with act3:
+                if st.button("🗑️ Supprimer", key=f"del_{entry_id}", use_container_width=True):
+                    st.session_state["confirm_delete_id"] = entry_id
+                    st.rerun()
 
 
 def page_cash_bank(title: str, account_code: str, entries_df: pd.DataFrame, lines_df: pd.DataFrame, cfg: Dict[str, Any], year: int, month: str) -> None:
