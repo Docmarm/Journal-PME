@@ -1424,6 +1424,21 @@ def render_sidebar(cfg: Dict[str, Any], user: Dict[str, Any], entries_df: pd.Dat
         st.markdown("---")
         selected_year = st.selectbox("Année", year_options, index=default_index)
         selected_month = st.selectbox("Mois", ["Tous"] + MOIS)
+        
+        st.markdown("---")
+        with st.sidebar.expander("💡 Aide & Glossaire"):
+            st.markdown("""
+            **Codes Journaux :**
+            - **CAI** : Caisse (Espèces)
+            - **BQ** : Banque (Chèques/Virements)
+            - **OD** : Opérations Diverses (Amortissements, Correction)
+            - **TR** : Trésorerie (Virements internes)
+            
+            **Partie Double :**
+            Chaque opération doit avoir un total **Débit = Crédit**.
+            """)
+            st.info("💡 Astuce : Utilisez l'assistant guidé pour vos opérations courantes.")
+            
     return page, selected_year, selected_month
 
 
@@ -1522,7 +1537,7 @@ def page_entry_input(user_uid: str, accounts_df: pd.DataFrame, cfg: Dict[str, An
     if bs:
         st.warning(f"⚠️ Connexion Firebase : {bs}")
 
-    st.title("✍️ Saisie des Écritures")
+    st.title("✍️ Saisie des Écritures") 
     
     # ── LOGIQUE DE MODIFICATION ──
     edit_id = st.session_state.get("entry_to_edit")
@@ -2584,12 +2599,15 @@ def page_settings(user_uid: str, entries_df: pd.DataFrame, lines_df: pd.DataFram
 
     st.markdown("---")
     st.markdown("### Plan comptable")
+    
+    view_acc = accounts_df.copy()
+    view_acc["Groupe"] = view_acc["statement_group"].map(lambda x: STATEMENT_GROUPS_FR.get(x, x))
+    
     st.dataframe(
-        accounts_df[["code", "label", "statement_group", "normal_side"]].rename(
+        view_acc[["code", "label", "Groupe", "normal_side"]].rename(
             columns={
                 "code": "Compte",
                 "label": "Intitulé",
-                "statement_group": "Groupe",
                 "normal_side": "Sens normal",
             }
         ),
@@ -2597,7 +2615,33 @@ def page_settings(user_uid: str, entries_df: pd.DataFrame, lines_df: pd.DataFram
         hide_index=True,
     )
 
-    st.markdown("---")
+    with st.expander("➕ Ajouter un nouveau compte au plan comptable"):
+        with st.form("add_account_form"):
+            ac_c1, ac_c2 = st.columns(2)
+            with ac_c1:
+                new_code = st.text_input("Code compte (ex: 613)", placeholder="613")
+                new_label = st.text_input("Intitulé (ex: Transport)", placeholder="Transport")
+            with ac_c2:
+                new_group = st.selectbox("Groupe de bilan/résultat", list(STATEMENT_GROUPS_FR.keys()), format_func=lambda x: STATEMENT_GROUPS_FR[x])
+                new_side = st.selectbox("Sens normal", ["debit", "credit"], format_func=lambda x: "Débit" if x=="debit" else "Crédit")
+            
+            if st.form_submit_button("➕ Ajouter le compte", type="primary"):
+                if not new_code.strip() or not new_label.strip():
+                    st.error("Le code et l'intitulé sont obligatoires.")
+                else:
+                    new_acc = {
+                        "code": new_code.strip(),
+                        "label": new_label.strip(),
+                        "statement_group": new_group,
+                        "normal_side": new_side
+                    }
+                    ok = save_account(user_uid, new_acc)
+                    if ok:
+                        st.success(f"Compte {new_code} ajouté.")
+                        st.cache_data.clear() # Force reload
+                        st.rerun()
+                    else:
+                        st.error("Erreur lors de l'ajout.")
     st.markdown("### Export des données")
     c1, c2, c3 = st.columns(3)
 
