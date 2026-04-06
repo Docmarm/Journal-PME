@@ -131,6 +131,52 @@ GUIDED_TEMPLATES = [
     "Achat d'immobilisation payé en banque",
 ]
 
+NATURE_MAP = {
+    "💰 Vente / Prestation": {
+        "payment_options": ["💵 Caisse", "🏦 Banque"],
+        "templates": {
+            "💵 Caisse": "Vente encaissée en caisse",
+            "🏦 Banque": "Vente encaissée en banque",
+        },
+    },
+    "💸 Dépense / Charge": {
+        "payment_options": ["💵 Caisse", "🏦 Banque"],
+        "templates": {
+            "💵 Caisse": "Dépense payée par caisse",
+            "🏦 Banque": "Dépense payée par banque",
+        },
+    },
+    "🔄 Virement interne": {
+        "payment_options": ["Caisse → Banque", "Banque → Caisse"],
+        "templates": {
+            "Caisse → Banque": "Virement caisse vers banque",
+            "Banque → Caisse": "Virement banque vers caisse",
+        },
+    },
+    "👤 Encaissement client": {
+        "payment_options": ["💵 Caisse", "🏦 Banque"],
+        "templates": {
+            "💵 Caisse": "Encaissement client en caisse",
+            "🏦 Banque": "Encaissement client en banque",
+        },
+    },
+    "🏢 Paiement fournisseur": {
+        "payment_options": ["💵 Caisse", "🏦 Banque"],
+        "templates": {
+            "💵 Caisse": "Paiement fournisseur par caisse",
+            "🏦 Banque": "Paiement fournisseur par banque",
+        },
+    },
+    "🏗️ Achat d'immobilisation": {
+        "payment_options": ["💵 Caisse", "🏦 Banque"],
+        "templates": {
+            "💵 Caisse": "Achat d'immobilisation payé en caisse",
+            "🏦 Banque": "Achat d'immobilisation payé en banque",
+        },
+    },
+}
+
+
 
 def get_runtime_setting(name: str, default: Optional[str] = None) -> Optional[str]:
     try:
@@ -1285,6 +1331,7 @@ def render_sidebar(cfg: Dict[str, Any], user: Dict[str, Any], entries_df: pd.Dat
                 "⚖️ Balance Générale",
                 "📈 Compte de Résultat",
                 "📊 Bilan",
+                "📅 Tableau de Clôture",
                 "⚙️ Paramètres",
             ],
         )
@@ -1373,10 +1420,11 @@ def page_dashboard(entries_df: pd.DataFrame, lines_df: pd.DataFrame, accounts_df
         )
 
 
+
 def page_entry_input(user_uid: str, accounts_df: pd.DataFrame, cfg: Dict[str, Any]) -> None:
     devise = cfg.get("devise", "FCFA")
     st.title("Saisie des Écritures")
-    tab_guided, tab_manual = st.tabs(["Assistant de saisie", "Écriture manuelle"])
+    tab_guided, tab_manual = st.tabs(["✨ Assistant de saisie", "✍️ Écriture manuelle"])
 
     revenue_options = account_display_options(accounts_df, prefixes=("7",))
     expense_options = [opt for opt in account_display_options(accounts_df, prefixes=("6",)) if not opt.startswith("681 - ")]
@@ -1386,18 +1434,37 @@ def page_entry_input(user_uid: str, accounts_df: pd.DataFrame, cfg: Dict[str, An
         expense_options = ["602 - Fournitures et services extérieurs"]
 
     with tab_guided:
+        st.markdown("#### Étape 1 — Nature et moyen de paiement")
+        col_nat, col_pay = st.columns(2)
+        with col_nat:
+            nature = st.selectbox(
+                "🎯 Nature de l'opération",
+                list(NATURE_MAP.keys()),
+                key="guided_nature_sel",
+            )
+        payment_options = NATURE_MAP[nature]["payment_options"]
+        with col_pay:
+            moyen = st.selectbox(
+                "💳 Moyen de paiement",
+                payment_options,
+                key="guided_moyen_sel",
+            )
+        template = NATURE_MAP[nature]["templates"][moyen]
+        st.info(f"📋 **Écriture générée :** {template}")
+        st.markdown("---")
+        st.markdown("#### Étape 2 — Détails de l'écriture")
+
         with st.form("guided_entry_form", clear_on_submit=True):
-            st.markdown("#### Assistant de saisie comptable")
             c1, c2, c3 = st.columns(3)
             with c1:
                 entry_date = st.date_input("Date", value=date.today())
                 piece_no = st.text_input("N° Pièce", placeholder="FAC-001")
             with c2:
-                template = st.selectbox("Modèle d'écriture", GUIDED_TEMPLATES)
                 amount = st.number_input(f"Montant ({devise})", min_value=0.0, step=1000.0)
-            with c3:
                 label = st.text_input("Libellé", placeholder="Description de l'opération")
+            with c3:
                 memo = st.text_input("Note / Référence", placeholder="Optionnel")
+                st.write("")
 
             revenue_opt = None
             expense_opt = None
@@ -1416,7 +1483,7 @@ def page_entry_input(user_uid: str, accounts_df: pd.DataFrame, cfg: Dict[str, An
                 if asset_family:
                     st.caption(f"Durée d'amortissement proposée : {ASSET_CATALOG[asset_family]['life_years']} ans")
 
-            submitted = st.form_submit_button("Enregistrer l'écriture", type="primary", use_container_width=True)
+            submitted = st.form_submit_button("✅ Enregistrer l'écriture", type="primary", use_container_width=True)
             if submitted:
                 if amount <= 0:
                     st.error("Le montant doit être supérieur à 0.")
@@ -1576,11 +1643,10 @@ def page_entry_input(user_uid: str, accounts_df: pd.DataFrame, cfg: Dict[str, An
                 journal = st.selectbox("Journal", ["OD", "CAI", "BQ", "TR"], key="m_journal")
                 label = st.text_input("Libellé", key="m_label")
             with h3:
-                st.write("")
-                st.write("Saisis jusqu'à 4 lignes.")
+                nb_lines = st.number_input("Nombre de lignes", min_value=2, max_value=10, value=4, step=1, key="m_nb_lines")
 
             manual_lines: List[Dict[str, Any]] = []
-            for idx in range(1, 5):
+            for idx in range(1, int(nb_lines) + 1):
                 st.markdown(f"**Ligne {idx}**")
                 c1, c2, c3, c4 = st.columns([3, 2, 2, 3])
                 with c1:
@@ -1600,7 +1666,7 @@ def page_entry_input(user_uid: str, accounts_df: pd.DataFrame, cfg: Dict[str, An
                     "memo": memo,
                 })
 
-            submit_manual = st.form_submit_button("Enregistrer l'écriture manuelle", type="primary", use_container_width=True)
+            submit_manual = st.form_submit_button("✅ Enregistrer l'écriture manuelle", type="primary", use_container_width=True)
             if submit_manual:
                 if not label.strip():
                     st.error("Le libellé est obligatoire.")
@@ -1706,6 +1772,195 @@ def page_cash_bank(title: str, account_code: str, entries_df: pd.DataFrame, line
     fig.add_scatter(name="Solde", x=journal["Date"], y=journal["_solde_num"], mode="lines+markers", line=dict(color="#3b82f6", width=3))
     fig.update_layout(barmode="group", height=340, margin=dict(l=10, r=10, t=10, b=10), paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)", legend=dict(orientation="h"))
     st.plotly_chart(fig, use_container_width=True)
+
+
+
+def monthly_closing_table(
+    entries_df: pd.DataFrame,
+    lines_df: pd.DataFrame,
+    accounts_df: pd.DataFrame,
+    cfg: Dict[str, Any],
+    year: int,
+) -> pd.DataFrame:
+    """Tableau de clôture mensuel avec cumuls CA, charges, résultat et trésorerie."""
+    opening_caisse = safe_float(cfg.get("solde_initial_caisse", 0), 0)
+    opening_banque = safe_float(cfg.get("solde_initial_banque", 0), 0)
+    ledger = ledger_df(entries_df, lines_df)
+    acc_map = account_map(accounts_df)
+    rows = []
+    cumul_ca = 0.0
+    cumul_charges = 0.0
+    cumul_resultat = 0.0
+    solde_caisse = opening_caisse
+    solde_banque = opening_banque
+
+    for m in MOIS:
+        if ledger.empty:
+            lm = pd.DataFrame()
+        else:
+            lm = ledger[(ledger["annee"] == year) & (ledger["mois"] == m)].copy()
+
+        if lm.empty:
+            ca = 0.0
+            charges = 0.0
+            mvt_caisse = 0.0
+            mvt_banque = 0.0
+        else:
+            lm["_sg"] = lm["account_code"].map(lambda x: acc_map.get(x, {}).get("statement_group", ""))
+            ca = max(0.0, lm[lm["_sg"] == "revenue"]["credit"].sum() - lm[lm["_sg"] == "revenue"]["debit"].sum())
+            charges = max(0.0, lm[lm["_sg"] == "expense"]["debit"].sum() - lm[lm["_sg"] == "expense"]["credit"].sum())
+            mvt_caisse = lm[lm["account_code"] == "57"]["debit"].sum() - lm[lm["account_code"] == "57"]["credit"].sum()
+            mvt_banque = lm[lm["account_code"] == "521"]["debit"].sum() - lm[lm["account_code"] == "521"]["credit"].sum()
+
+        resultat = ca - charges
+        cumul_ca += ca
+        cumul_charges += charges
+        cumul_resultat += resultat
+        solde_caisse += mvt_caisse
+        solde_banque += mvt_banque
+
+        rows.append({
+            "Mois": m,
+            "CA (Ventes)": ca,
+            "Charges": charges,
+            "Marge brute": ca - charges,
+            "Résultat": resultat,
+            "Solde Caisse": solde_caisse,
+            "Solde Banque": solde_banque,
+            "Trésorerie totale": solde_caisse + solde_banque,
+            "Cumul CA": cumul_ca,
+            "Cumul Charges": cumul_charges,
+            "Cumul Résultat": cumul_resultat,
+        })
+    return pd.DataFrame(rows)
+
+
+def page_closing_table(
+    entries_df: pd.DataFrame,
+    lines_df: pd.DataFrame,
+    accounts_df: pd.DataFrame,
+    cfg: Dict[str, Any],
+    year: int,
+) -> None:
+    devise = cfg.get("devise", "FCFA")
+    st.title(f"📅 Tableau de Clôture — {year}")
+    st.caption("Récapitulatif mensuel : ventes, charges, résultat et trésorerie avec cumuls annuels.")
+
+    df = monthly_closing_table(entries_df, lines_df, accounts_df, cfg, year)
+
+    total_ca = df["CA (Ventes)"].sum()
+    total_charges = df["Charges"].sum()
+    total_resultat = df["Résultat"].sum()
+    mois_positifs = int((df["Résultat"] > 0).sum())
+    last_tresorerie = df["Trésorerie totale"].iloc[-1] if not df.empty else 0.0
+
+    c1, c2, c3, c4, c5 = st.columns(5)
+    with c1:
+        render_kpi("CA annuel", fmt_amount(total_ca, devise), f"Exercice {year}")
+    with c2:
+        render_kpi("Charges annuelles", fmt_amount(total_charges, devise), f"Exercice {year}")
+    with c3:
+        render_kpi("Résultat annuel", fmt_amount(total_resultat, devise), "Avant IS")
+    with c4:
+        render_kpi("Mois bénéficiaires", f"{mois_positifs}/12", "Résultat > 0")
+    with c5:
+        render_kpi("Trésorerie finale", fmt_amount(last_tresorerie, devise), "Caisse + Banque")
+
+    st.markdown("")
+    st.markdown('<div class="section-title">Tableau mensuel détaillé</div>', unsafe_allow_html=True)
+
+    # Build display dataframe with formatted amounts
+    num_cols = ["CA (Ventes)", "Charges", "Marge brute", "Résultat",
+                "Solde Caisse", "Solde Banque", "Trésorerie totale",
+                "Cumul CA", "Cumul Charges", "Cumul Résultat"]
+    display_df = df[["Mois"] + num_cols].copy()
+    for col in num_cols:
+        display_df[col] = display_df[col].apply(lambda x: fmt_amount(x, devise))
+
+    st.dataframe(display_df, use_container_width=True, hide_index=True)
+
+    # --- Graphs ---
+    col1, col2 = st.columns(2)
+    with col1:
+        st.markdown('<div class="section-title">Performances mensuelles</div>', unsafe_allow_html=True)
+        fig = go.Figure()
+        fig.add_bar(name="CA (Ventes)", x=df["Mois"].str[:3], y=df["CA (Ventes)"], marker_color="#22c55e")
+        fig.add_bar(name="Charges", x=df["Mois"].str[:3], y=df["Charges"], marker_color="#ef4444")
+        fig.add_scatter(
+            name="Résultat",
+            x=df["Mois"].str[:3], y=df["Résultat"],
+            mode="lines+markers",
+            line=dict(color="#3b82f6", width=3),
+        )
+        fig.update_layout(
+            barmode="group", height=320,
+            margin=dict(l=10, r=10, t=10, b=10),
+            paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
+            legend=dict(orientation="h"),
+        )
+        st.plotly_chart(fig, use_container_width=True)
+
+    with col2:
+        st.markdown('<div class="section-title">Cumul CA &amp; Charges</div>', unsafe_allow_html=True)
+        fig2 = go.Figure()
+        fig2.add_scatter(
+            name="Cumul CA",
+            x=df["Mois"].str[:3], y=df["Cumul CA"],
+            mode="lines+markers",
+            line=dict(color="#22c55e", width=3),
+            fill="tozeroy", fillcolor="rgba(34,197,94,0.08)",
+        )
+        fig2.add_scatter(
+            name="Cumul Charges",
+            x=df["Mois"].str[:3], y=df["Cumul Charges"],
+            mode="lines+markers",
+            line=dict(color="#ef4444", width=2, dash="dot"),
+        )
+        fig2.add_scatter(
+            name="Cumul Résultat",
+            x=df["Mois"].str[:3], y=df["Cumul Résultat"],
+            mode="lines+markers",
+            line=dict(color="#3b82f6", width=2),
+        )
+        fig2.update_layout(
+            height=320,
+            margin=dict(l=10, r=10, t=10, b=10),
+            paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
+            legend=dict(orientation="h"),
+        )
+        st.plotly_chart(fig2, use_container_width=True)
+
+    st.markdown('<div class="section-title">Évolution de la trésorerie</div>', unsafe_allow_html=True)
+    fig3 = go.Figure()
+    fig3.add_scatter(
+        name="Caisse", x=df["Mois"].str[:3], y=df["Solde Caisse"],
+        mode="lines+markers", line=dict(color="#f59e0b", width=2),
+    )
+    fig3.add_scatter(
+        name="Banque", x=df["Mois"].str[:3], y=df["Solde Banque"],
+        mode="lines+markers", line=dict(color="#8b5cf6", width=2),
+    )
+    fig3.add_scatter(
+        name="Trésorerie totale", x=df["Mois"].str[:3], y=df["Trésorerie totale"],
+        mode="lines+markers+text",
+        line=dict(color="#06b6d4", width=3),
+        fill="tozeroy", fillcolor="rgba(6,182,212,0.06)",
+    )
+    fig3.update_layout(
+        height=300,
+        margin=dict(l=10, r=10, t=10, b=10),
+        paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
+        legend=dict(orientation="h"),
+    )
+    st.plotly_chart(fig3, use_container_width=True)
+
+    csv = df.to_csv(index=False).encode("utf-8-sig")
+    st.download_button(
+        "📥 Exporter le tableau de clôture",
+        csv,
+        file_name=f"tableau_cloture_{year}.csv",
+        mime="text/csv",
+    )
 
 
 def page_assets(user_uid: str, entries_df: pd.DataFrame, assets_df: pd.DataFrame, cfg: Dict[str, Any], year: int) -> None:
@@ -2079,6 +2334,9 @@ def main() -> None:
 
     elif page == "📊 Bilan":
         page_balance_sheet(entries_df, lines_df, accounts_df, cfg, selected_year, selected_month)
+
+    elif page == "📅 Tableau de Clôture":
+        page_closing_table(entries_df, lines_df, accounts_df, cfg, selected_year)
 
     elif page == "⚙️ Paramètres":
         page_settings(user_uid, entries_df, lines_df, accounts_df, assets_df, cfg)
